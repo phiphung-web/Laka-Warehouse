@@ -1,0 +1,13 @@
+# Template only. Install after the Linux service writes technical logs here.
+# Requires a laka service user/group. Business records are stored elsewhere.
+/var/log/laka-kho/*.log {
+    daily
+    rotate 14
+    maxsize 10M
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su laka laka
+}
