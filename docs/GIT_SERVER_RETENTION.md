@@ -2,7 +2,7 @@
 
 ## Trạng thái
 
-Chuẩn bị Git cục bộ để lưu mã và lịch sử thay đổi. Chưa có URL repository từ xa, máy chủ SSH, tên miền hoặc tài khoản triển khai đã được xác nhận. Không đẩy dữ liệu lên Sites hoặc nơi lưu trữ bên ngoài trong bước này.
+Repository riêng tư: https://github.com/phiphung-web/laka-kho, nhánh `main`. Mã nguồn được quản lý bằng Git; snapshot Google Sheets, dữ liệu vận hành, log và bí mật không đưa vào repo. Chưa có máy chủ SSH, tên miền hoặc tài khoản triển khai được xác nhận. Không phát hành ứng dụng hoặc đưa dữ liệu kho lên Sites trong bước này.
 
 Bản chạy hiện tại dùng Vinext/Cloudflare Worker, D1 và đăng nhập Sites. Đây chưa phải bản triển khai trực tiếp lên VPS Linux. Để chạy VPS cần chuyển adapter cơ sở dữ liệu, đăng nhập và tiến trình server; bổ sung HTTPS, backup/khôi phục và cấu hình dịch vụ. Không dùng chế độ đăng nhập giả lập của localhost để mở ra Internet.
 

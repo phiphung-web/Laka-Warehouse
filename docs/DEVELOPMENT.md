@@ -61,7 +61,7 @@ Mã yêu cầu commerce có nội dung và kết quả lưu lại. Retry cùng m
 
 ## VPS và Git
 
-Xem `docs/GIT_SERVER_RETENTION.md`. Bản hiện tại chưa chuyển runtime/auth/database sang VPS. Mẫu logrotate chỉ là cấu hình chuẩn bị, chưa kích hoạt trên server. Không có remote Git hoặc SSH được cấu hình ở bước này.
+Xem `docs/GIT_SERVER_RETENTION.md`. Repository riêng tư là `phiphung-web/laka-kho`. Bản hiện tại chưa chuyển runtime/auth/database sang VPS. Mẫu logrotate chỉ là cấu hình chuẩn bị, chưa kích hoạt trên server. Chưa có kết nối SSH được cấu hình ở bước này.
 
 ## Triển khai
 
