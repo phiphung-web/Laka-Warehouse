@@ -1,0 +1,19 @@
+import fs from "node:fs";import os from "node:os";import path from "node:path";import {spawn,spawnSync} from "node:child_process";import {randomBytes} from "node:crypto";import {gunzipSync} from "node:zlib";import {DatabaseSync} from "node:sqlite";import assert from "node:assert/strict";import {createOwner} from "../lib/auth-core.ts";import {migrate} from "../scripts/migrate-sqlite.mjs";
+const dir=fs.mkdtempSync(path.join(os.tmpdir(),"laka-api-")),password=randomBytes(24).toString("base64url"),origin="http://127.0.0.1:5187";
+const serverFile=path.resolve(process.env.LAKA_TEST_SERVER||".next/standalone/server.js");
+fs.writeFileSync(path.join(dir,"owner.json"),JSON.stringify(await createOwner("qa_manager",password)));migrate(path.join(dir,"warehouse.sqlite"),path.resolve("drizzle"));
+fs.writeFileSync(path.join(dir,"source-data.json"),JSON.stringify({sourceId:"qa",sourceTitle:"Synthetic test data",importedAt:"2026-09-28",items:[{code:"QA_SOURCE",name:"Fixture",unit:"Cái",category:"QA",note:"Synthetic"}],history:[]}));
+const env={...process.env,LAKA_DATA_DIR:dir,LAKA_PUBLIC_ORIGIN:origin,LAKA_TEST_PASSWORD:password,LAKA_TEST_ORIGIN:origin,PORT:"5187",HOSTNAME:"127.0.0.1",NODE_ENV:"production",NEXT_TELEMETRY_DISABLED:"1"};
+let logs="";const server=spawn(process.execPath,[serverFile],{env,stdio:["ignore","pipe","pipe"]});server.stdout.on("data",d=>logs=(logs+d).slice(-8000));server.stderr.on("data",d=>logs=(logs+d).slice(-8000));
+try{
+ let ready=false;for(let i=0;i<40;i++){try{if((await fetch(origin+"/api/health")).status===200){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,500));}assert.ok(ready,"Server failed to start: "+logs);
+ assert.equal((await fetch(origin+"/api/kho")).status,401);assert.equal((await fetch(origin+"/api/kho",{headers:{"oai-authenticated-user-id":"forged","oai-authenticated-user-email":"test@example.invalid"}})).status,401);
+ assert.equal((await fetch(origin+"/api/auth/login",{method:"POST",headers:{origin:"https://invalid.example","content-type":"application/json"},body:"{}"})).status,403);
+ for(const script of ["tests/api-smoke.mjs","tests/commerce-api-smoke.mjs"]){const r=spawnSync(process.execPath,[script],{env,encoding:"utf8",timeout:60000});if(r.status!==0)throw Error(r.stdout+r.stderr);process.stdout.write(r.stdout);}
+ const backup=spawnSync(process.execPath,["scripts/backup-sqlite.mjs"],{env,encoding:"utf8",timeout:30000});assert.equal(backup.status,0,backup.stderr);const snapshot=JSON.parse(backup.stdout);assert.equal(snapshot.integrity,"ok");
+ const restoredFile=path.join(dir,"restore-test.sqlite");
+ const compressed=fs.readFileSync(path.join(snapshot.snapshot,"warehouse.sqlite.gz"));
+ fs.writeFileSync(restoredFile,gunzipSync(compressed));
+ const restored=new DatabaseSync(restoredFile,{readOnly:true}),live=new DatabaseSync(path.join(dir,"warehouse.sqlite"),{readOnly:true});try{assert.equal(restored.prepare("PRAGMA integrity_check").get().integrity_check,"ok");assert.deepEqual(restored.prepare("PRAGMA foreign_key_check").all(),[]);for(const name of ["ledger","balances","transactions","suppliers","purchase_invoices","supplier_payments"]){assert.deepEqual(restored.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all(),live.prepare(`SELECT * FROM ${name} ORDER BY rowid`).all(),name+" restore mismatch");}}finally{restored.close();live.close();}
+ console.log("VPS API/auth/backup integration passed on isolated data.");
+}finally{server.kill();await Promise.race([new Promise(r=>server.once("exit",r)),new Promise(r=>setTimeout(r,5000))]);const actual=fs.realpathSync(dir),temp=fs.realpathSync(os.tmpdir())+path.sep;if(!actual.startsWith(temp+"laka-api-"))throw Error("Unsafe cleanup path");try{fs.rmSync(actual,{recursive:true,force:true});}catch{console.log("Temporary QA data retained because a file is still open.");}}

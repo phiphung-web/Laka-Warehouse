@@ -1,17 +1,18 @@
-import { env } from "cloudflare:workers";
-import source from "./source";
-import { getChatGPTUser } from "@/app/chatgpt-auth";
+import {getDatabase} from "./sqlite";
+import {readSource} from "./source";
+import { getWarehouseUser } from "./auth-server";
 import {COMMERCE_ACTIONS,COMMERCE_TABLES,commerceState,mutateCommerce} from "./commerce-server";
 import { prepareTransaction, scaled, KINDS, today, validDate, type TxInput, type Item, type Location, type Balance } from "./inventory";
-export function db(){if(!env.DB)throw new Error("Kho dữ liệu tạm thời chưa sẵn sàng. Vui lòng thử lại.");return env.DB;}
+export function db(){return getDatabase();}
 const initialLocations=[["KHO_TONG","Kho tổng"],["BUONG_PHONG","Buồng phòng"],["HOMESTAY","Homestay / Lễ tân"],["BEP","Bếp"],["NHA_HANG","Nhà hàng bên ngoài"],["CAFE","Cafe"],["DUNG_CHUNG","Dùng chung"]];
 export async function identity(){
- const user=await getChatGPTUser();if(!user)throw new Error("AUTH_REQUIRED");
+ const user=await getWarehouseUser();if(!user)throw new Error("AUTH_REQUIRED");
  const d=db(),now=new Date().toISOString();
  await d.prepare("INSERT OR IGNORE INTO settings (id,owner,revision,seeded,created_at) VALUES (1,?,0,0,?)").bind(user.userId,now).run();
  const config=await d.prepare("SELECT * FROM settings WHERE id=1").first<any>();
  if(config.owner!==user.userId)throw new Error("FORBIDDEN");
  if(!config.seeded){
+  const source=readSource();
   const stmts=source.items.map(i=>d.prepare("INSERT OR IGNORE INTO items (code,name,unit,category,kind,note,active,pack_unit,pack_size,updated_at) VALUES (?,?,?,?,'unclassified',?,1,'',1000,?)").bind(i.code,i.name,i.unit,i.category,i.note,now));
   stmts.push(...initialLocations.map(([id,name])=>d.prepare("INSERT OR IGNORE INTO locations(id,name,active) VALUES (?,?,1)").bind(id,name)));
   for(let i=0;i<stmts.length;i+=60)await d.batch(stmts.slice(i,i+60));
@@ -20,6 +21,7 @@ export async function identity(){
  return user;
 }
 export async function state(user:any){
+ const source=readSource();
  const d=db();const out=await d.batch([
   d.prepare("SELECT * FROM items ORDER BY code"),
   d.prepare("SELECT * FROM locations ORDER BY CASE WHEN id='KHO_TONG' THEN 0 ELSE 1 END,name"),
@@ -94,6 +96,7 @@ export async function mutate(body:any,user:any){
  }else throw new Error("Thao tác không được hỗ trợ.");return {id};
 }
 export async function backup(){
+ const source=readSource();
  const names=["items","locations","balances","minimums","transactions","ledger","events","drafts",...COMMERCE_TABLES];
  const rows=await db().batch(names.map(n=>db().prepare("SELECT * FROM "+n)));
  return {format:"laka-kho-backup-v2",exportedAt:new Date().toISOString(),quantityScale:1000,source,tables:Object.fromEntries(names.map((n,i)=>[n,rows[i].results]))};

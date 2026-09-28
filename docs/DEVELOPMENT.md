@@ -8,18 +8,18 @@
 - app/history-views.tsx: lịch sử, đảo phiếu và xuất file.
 - app/api/kho/route.ts: ranh giới xác thực, nguồn yêu cầu và JSON.
 - lib/inventory.ts: quy tắc nghiệp vụ thuần, quy đổi và tạo các dòng ghi sổ.
-- lib/server.ts: truy vấn D1 có tham số, quyền người quản lý, ghi nguyên tử và chống trùng.
+- lib/server.ts: truy vấn SQLite có tham số, quyền người quản lý, ghi nguyên tử và chống trùng.
 - db/schema.ts và drizzle/: cấu trúc và lịch sử thay đổi cơ sở dữ liệu.
-- lib/source-data.json: ảnh chụp nguồn riêng, chỉ được nhập trong mã server.
+- lib/source.ts: đọc nguồn riêng từ LAKA_DATA_DIR/source-data.json lúc chạy, không nhúng vào gói build.
 - lib/commerce.ts: kiểm tra chứng từ, số tiền VND, trạng thái và báo cáo công nợ.
 - lib/commerce-server.ts: lưu NCC, chứng từ, thanh toán, đảo/hủy, gắn phiếu nhập bằng batch nguyên tử.
 - app/commerce-views.tsx: hồ sơ NCC, lập/in chứng từ, trả tiền và báo cáo.
 
-`lib/source-data.json` được bỏ qua trong Git. `npm ci` tạo dữ liệu trống nếu chưa có. Giữ hoặc chuyển snapshot riêng trước khi khởi tạo danh mục nếu cần dùng dữ liệu cũ. Không dùng Git để sao lưu dữ liệu vận hành.
+Dữ liệu nguồn nằm ngoài Git và release. Chép source-data.json vào LAKA_DATA_DIR trước khi đăng nhập lần đầu. Không dùng Git để sao lưu dữ liệu vận hành.
 
 ## Tính toàn vẹn
 
-Số lượng được lưu dưới dạng số nguyên nhân 1000. Ledger không sửa/xóa. Triggers cập nhật balances trong cùng giao dịch; ràng buộc ngăn số âm. Mỗi thao tác ghi có phiên bản dữ liệu dự kiến; trigger từ chối phiên bản cũ. D1 batch bảo đảm phiếu, sổ và nhật ký thành công hoặc cùng hủy.
+Số lượng được lưu dưới dạng số nguyên nhân 1000. Ledger không sửa/xóa. Triggers cập nhật balances trong cùng giao dịch; ràng buộc ngăn số âm. Mỗi thao tác ghi có phiên bản dữ liệu dự kiến; trigger từ chối phiên bản cũ. SQLite batch bảo đảm phiếu, sổ và nhật ký thành công hoặc cùng hủy.
 
 Idempotency của phiếu dùng UUID và nội dung yêu cầu đã lưu. Yêu cầu lặp cùng nội dung trả lại phiếu có sẵn; UUID giống nhưng nội dung khác bị từ chối.
 
@@ -59,18 +59,14 @@ Migration 0001 thêm 6 bảng và các trigger bảo vệ. Không sửa migratio
 
 Mã yêu cầu commerce có nội dung và kết quả lưu lại. Retry cùng mã/nội dung không tạo lần thanh toán mới; mã cũ với nội dung khác bị từ chối. Thanh toán và đảo/hủy là bản ghi mới, không sửa dòng gốc. Những bảng này không phải log kỹ thuật để dọn theo thời gian.
 
-## VPS và Git
+## VPS và kiểm thử hiện tại
 
-Xem `docs/GIT_SERVER_RETENTION.md`. Repository riêng tư là `phiphung-web/laka-kho`. Bản hiện tại chưa chuyển runtime/auth/database sang VPS. Mẫu logrotate chỉ là cấu hình chuẩn bị, chưa kích hoạt trên server. Chưa có kết nối SSH được cấu hình ở bước này.
+Runtime: Next.js standalone, Node 24 và SQLite WAL; đăng nhập riêng tại /login. Không còn dùng Sites auth hoặc Cloudflare D1 trong luồng đang triển khai. File/script preview cũ được giữ làm lịch sử tham khảo.
 
-## Triển khai
+33 kiểm thử nghiệp vụ/lưu trữ/auth đã đạt. Build và TypeScript đạt. Bộ tests/run-vps-api.mjs khởi chạy standalone trên localhost với DB/nguồn/tài khoản giả tách biệt; chạy 18 kiểm tra kho và 12 kiểm tra chứng từ, từ chối giả header đăng nhập/Origin sai, tạo backup rồi đối chiếu các bảng sau khôi phục. Không chạy script QA trên dữ liệu thật. Không kiểm tra giao diện theo yêu cầu người dùng.
 
-Nguồn dùng Vinext/React, Cloudflare Worker và D1. Logical binding DB trong .openai/hosting.json. Sites quản lý phát hành, quyền truy cập và cơ sở dữ liệu thật.
+Lệnh: node tests/inventory.test.mjs; node tests/commerce.test.mjs; node tests/auth.test.mjs; node tests/sqlite-adapter.test.mjs; npm run build; node tests/run-vps-api.mjs; npm run pack:vps.
 
-Migration 0000 có các trigger thủ công sau phần Drizzle tạo. Giữ nguyên mọi migration đã được áp dụng; thay đổi tiếp theo phải tạo migration mới. Không dùng CREATE/ALTER trong runtime.
+Xem docs/GIT_SERVER_RETENTION.md cho triển khai. Migration có checksum, không sửa migration đã áp dụng. Release cũ được khôi phục cùng DB trước cập nhật nếu bản mới không khỏe.
 
-Danh mục được khởi tạo idempotent sau lần đăng nhập hợp lệ đầu tiên. Hàng mẫu QA và cơ sở dữ liệu .wrangler chỉ tồn tại cục bộ, không nằm trong gói phát hành.
-
-GET trạng thái trả 500 phiếu và 300 sự kiện gần nhất để giữ giao diện gọn. API sao lưu xuất toàn bộ. Khi dữ liệu tăng lớn, bổ sung phân trang server và xuất luồng.
-
-CSV có BOM UTF-8 và vô hiệu hóa công thức từ chuỗi bắt đầu bằng =, +, -, @. Bản sao JSON chứa dữ liệu nghiệp vụ riêng tư, cần giữ trong nơi được phép truy cập.
+API trạng thái trả tối đa 500 phiếu và 300 sự kiện gần nhất; API sao lưu xuất toàn bộ. Commerce hiện tải toàn bộ chứng từ/thanh toán. Khi dữ liệu tăng lớn cần phân trang server và xuất luồng. CSV có BOM UTF-8 và vô hiệu hóa công thức từ chuỗi bắt đầu bằng =, +, -, @.

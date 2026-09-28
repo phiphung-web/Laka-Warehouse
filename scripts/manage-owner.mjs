@@ -1,0 +1,21 @@
+import fs from "node:fs";
+import path from "node:path";
+import {randomBytes} from "node:crypto";
+import {createOwner} from "../lib/auth-core.ts";
+const [command,...args]=process.argv.slice(2);
+if(!["init","reset"].includes(command))throw Error("Usage: node scripts/manage-owner.mjs init|reset [--username name] [--password-file path] [--credentials-file path]");
+const option=name=>{const i=args.indexOf(name);return i>=0?args[i+1]:undefined;};
+const dir=path.resolve(process.env.LAKA_DATA_DIR||"data"),file=path.join(dir,"owner.json"),exists=fs.existsSync(file);
+if(command==="init"&&exists)throw Error("Owner already exists; refusing to overwrite. Use reset deliberately.");
+if(command==="reset"&&!exists)throw Error("Owner does not exist.");
+const previous=exists?JSON.parse(fs.readFileSync(file,"utf8")):null;
+const passwordFile=option("--password-file"),password=passwordFile?fs.readFileSync(passwordFile,"utf8").replace(/\r?\n$/,""):randomBytes(24).toString("base64url");
+const credentials=option("--credentials-file");if(!passwordFile&&!credentials)throw Error("Generated password needs --credentials-file in a private directory; it will never be printed.");
+if(credentials&&fs.existsSync(credentials))throw Error("Credentials file already exists; choose a new path.");
+const config=await createOwner(option("--username")||previous?.username||"quanlykho",password,option("--display-name")||previous?.displayName||"Quản lý kho");
+if(previous)config.id=previous.id;
+// Persist a generated password before switching the account, so a bad output path cannot lock the owner out.
+if(credentials)fs.writeFileSync(credentials,`LAKA Kho\nTên đăng nhập: ${config.username}\nMật khẩu: ${password}\nGiữ riêng, không đưa vào Git.\n`,{mode:0o600,flag:"wx"});
+fs.mkdirSync(dir,{recursive:true,mode:0o700});
+const temp=file+".tmp-"+process.pid;fs.writeFileSync(temp,JSON.stringify(config,null,2)+"\n",{mode:0o600,flag:"wx"});fs.renameSync(temp,file);fs.chmodSync(file,0o600);
+console.log(JSON.stringify({ok:true,action:command,ownerFile:file,credentialsSaved:!!credentials,sessionsRotated:command==="reset"}));

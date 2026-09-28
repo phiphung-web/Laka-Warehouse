@@ -3,16 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "postinstall": "node scripts/prepare-source.mjs",
     "prepare:source": "node scripts/prepare-source.mjs",
     "test:commerce": "node tests/commerce.test.mjs",
     "install:ci": "node scripts/install-ci.mjs",
-    "dev": "node scripts/run-framework.mjs dev",
-    "build": "node scripts/run-framework.mjs build",
-    "start": "node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js dev --config dist/server/wrangler.json --local --persist-to .wrangler/state --ip 127.0.0.1 --inspector-port 0",
+    "dev": "next dev --webpack --hostname 127.0.0.1 --port 5173",
+    "build": "next build --webpack",
+    "start": "next start --hostname 127.0.0.1 --port 5173",
+    "db:migrate": "node scripts/migrate-sqlite.mjs",
+    "owner:init": "node scripts/manage-owner.mjs init",
+    "pack:vps": "node scripts/package-vps.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

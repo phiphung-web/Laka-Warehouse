@@ -43,6 +43,12 @@
   ],
   "exclude": [
     "node_modules",
-    "examples"
+    "examples",
+    "work",
+    "data",
+    "artifacts",
+    ".sites-runtime",
+    ".wrangler",
+    "dist"
   ]
 }

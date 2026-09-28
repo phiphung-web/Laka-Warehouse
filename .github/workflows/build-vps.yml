@@ -1,0 +1,40 @@
+name: Build VPS release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: vps-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Test business rules and persistence
+        run: |
+          node tests/inventory.test.mjs
+          node tests/commerce.test.mjs
+          node tests/auth.test.mjs
+          node tests/sqlite-adapter.test.mjs
+      - run: npm run build
+      - name: Test real API with isolated SQLite data
+        run: node tests/run-vps-api.mjs
+      - run: npm run pack:vps
+      - name: Publish verified application package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "vps-${GITHUB_SHA}" artifacts/laka-warehouse.tgz artifacts/laka-warehouse.tgz.sha256 --target "$GITHUB_SHA" --title "VPS ${GITHUB_SHA:0:7}" --notes "Verified application code only. Business data and credentials are stored separately on the server."

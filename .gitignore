@@ -54,3 +54,7 @@ next-env.d.ts
 /logs/
 # Bundled reference examples are not part of the application.
 /examples/
+/data/
+/releases/
+/artifacts/
+/owner.json

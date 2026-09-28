@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import {today} from "../lib/inventory.ts";
-const origin="http://localhost:5173";
-const auth=await fetch(origin+"/signin-with-chatgpt?return_to=/",{redirect:"manual"});
-const cookie=auth.headers.getSetCookie().map(c=>c.split(";")[0]).join("; ");
+import {origin,localAuth} from "./api-auth.mjs";
+const cookie=await localAuth();
 assert.ok(cookie,"Local sign-in cookie required");
 let passed=0;
 async function state(){const r=await fetch(origin+"/api/kho",{headers:{cookie}});assert.equal(r.status,200);return r.json();}
@@ -33,7 +32,7 @@ r=await mutate("minimum",{item:code,location:"KHO_TONG",quantity:20});assert.equ
 r=await tx("COUNT",{revision:stale,to:"KHO_TONG",lines:[{item:code,quantity:1}]});assert.equal(r.status,409);s=await state();assert.equal(balance("KHO_TONG"),100000);passed++;
 const draft={id:crypto.randomUUID(),type:"RECEIPT",lines:[{item:code,quantity:1}],note:"Nháp thử nghiệm"};
 r=await send({id:draft.id,action:"draft",payload:draft});assert.equal(r.status,200);s=await state();assert.ok(s.drafts.some(d=>d.id===draft.id));passed++;
-const backup=await fetch(origin+"/api/kho?export=all",{headers:{cookie}}).then(r=>r.json());assert.equal(backup.quantityScale,1000);assert.ok(backup.tables.ledger.length>0);assert.equal(backup.source.items.length,140);passed++;
+const backup=await fetch(origin+"/api/kho?export=all",{headers:{cookie}}).then(r=>r.json());assert.equal(backup.quantityScale,1000);assert.ok(backup.tables.ledger.length>0);assert.equal(backup.source.items.length,1);assert.equal(backup.source.items[0].code,"QA_SOURCE");passed++;
 const unauthorized=await fetch(origin+"/api/kho");assert.equal(unauthorized.status,401);passed++;
 const badOrigin=await fetch(origin+"/api/kho",{method:"POST",headers:{cookie,origin:"https://unrelated.invalid","content-type":"application/json"},body:"{}"});assert.equal(badOrigin.status,403);passed++;
 console.log(JSON.stringify({checksPassed:passed,scope:"Local preview database only",testItem:code,finalMain:balance("KHO_TONG")/1000,finalHousekeeping:balance("BUONG_PHONG")/1000,damaged:balance("BUONG_PHONG","damaged")/1000}));

@@ -1,0 +1,29 @@
+[Unit]
+Description=LAKA Warehouse
+After=network.target
+[Service]
+User=laka
+Group=laka
+WorkingDirectory=/opt/laka-warehouse/current
+EnvironmentFile=/etc/laka-warehouse.env
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=3000
+Environment=NODE_OPTIONS=--max-old-space-size=384
+Environment=NEXT_TELEMETRY_DISABLED=1
+ExecStart=/opt/laka-node/bin/node server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/laka-warehouse /var/log/laka-warehouse
+MemoryHigh=550M
+MemoryMax=700M
+StandardOutput=append:/var/log/laka-warehouse/application.log
+StandardError=append:/var/log/laka-warehouse/error.log
+[Install]
+WantedBy=multi-user.target

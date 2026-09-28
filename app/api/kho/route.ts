@@ -1,4 +1,6 @@
 import { identity,state,mutate,backup } from "@/lib/server";
+import {trustedMutation} from "@/lib/auth-server";
+export const runtime="nodejs";
 export const dynamic="force-dynamic";
 function response(data:any,status=200){return Response.json(data,{status,headers:{"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});}
 function error(e:any){
@@ -14,7 +16,7 @@ function error(e:any){
 }
 export async function GET(request:Request){try{const user=await identity();return response(new URL(request.url).searchParams.get("export")==="all"?await backup():await state(user));}catch(e){return error(e);}}
 export async function POST(request:Request){try{
- const origin=request.headers.get("origin");if(origin&&origin!==new URL(request.url).origin)return response({error:"Nguồn yêu cầu không hợp lệ."},403);
+ if(!trustedMutation(request))return response({error:"Nguồn yêu cầu không hợp lệ."},403);
  if(!request.headers.get("content-type")?.includes("application/json"))return response({error:"Định dạng yêu cầu không hợp lệ."},415);
  const user=await identity(),text=await request.text();if(text.length>180000)return response({error:"Phiếu quá lớn; chia thành các phiếu nhỏ hơn."},413);
  return response(await mutate(JSON.parse(text),user));

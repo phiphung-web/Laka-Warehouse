@@ -1,0 +1,14 @@
+[Unit]
+Description=Verify and retain LAKA database backups
+[Service]
+Type=oneshot
+User=laka
+Group=laka
+WorkingDirectory=/opt/laka-warehouse/current
+EnvironmentFile=/etc/laka-warehouse.env
+ExecStart=/opt/laka-node/bin/node scripts/backup-sqlite.mjs
+UMask=0077
+NoNewPrivileges=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/laka-warehouse /var/backups/laka-warehouse

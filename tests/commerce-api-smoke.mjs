@@ -1,8 +1,8 @@
 // Runs only against the local preview. Leaves clearly labelled QA records for auditability.
 import assert from "node:assert/strict";
 import {today} from "../lib/inventory.ts";
-const origin="http://localhost:5173",auth=await fetch(origin+"/signin-with-chatgpt?return_to=/",{redirect:"manual"});
-const cookie=auth.headers.getSetCookie().map(c=>c.split(";")[0]).join("; ");assert.ok(cookie,"Local sign-in required");
+import {origin,localAuth} from "./api-auth.mjs";
+const cookie=await localAuth();assert.ok(cookie,"Local sign-in required");
 const state=async()=>{const r=await fetch(origin+"/api/kho",{headers:{cookie}});assert.equal(r.status,200);return r.json();};
 const uid=()=>crypto.randomUUID();let passed=0;
 async function send(action,payload,id=uid()){const s=await state(),r=await fetch(origin+"/api/kho",{method:"POST",headers:{cookie,origin,"content-type":"application/json"},body:JSON.stringify({id,revision:s.revision,action,payload})});return {status:r.status,body:await r.json()};}

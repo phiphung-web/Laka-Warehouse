@@ -43,7 +43,7 @@ Lịch sử từ file cũ chỉ dùng tham chiếu; không tham gia tính tồn.
 
 Đơn giá tính trên đơn vị người dùng chọn trong dòng phiếu. Nếu chưa có giá, để trống; ứng dụng đánh dấu thiếu giá và hiển thị giá trị đã nhập. Số 0 là giá được nhập rõ ràng, ví dụ hàng tặng.
 
-Ứng dụng chưa tính giá vốn bình quân/FIFO, kế toán, công nợ nhà cung cấp hoặc thanh toán. Giá trị phiếu mua không phải giá trị hàng còn tồn.
+Ứng dụng có chứng từ mua, công nợ NCC và thanh toán; chưa tính giá vốn bình quân/FIFO hoặc kế toán tổng hợp. Giá trị phiếu mua không phải giá trị hàng còn tồn.
 
 ## Sửa sai
 
@@ -63,12 +63,12 @@ Nhập CSV vào Google Sheets qua Tệp → Nhập → Tải lên, dấu phân c
 
 ## Truy cập
 
-Khi phát hành, site phải ở chế độ riêng tư cho chủ sở hữu. Backend kiểm tra tài khoản ở từng yêu cầu và chỉ cho người quản lý đã khởi tạo dùng kho. Không có chức năng mời nhân viên hoặc cấp quyền trong phiên bản này. Việc xây dựng và kiểm thử cục bộ không đồng nghĩa ứng dụng đã được phát hành trực tuyến.
+Truy cập https://139.180.223.190 bằng tài khoản quản lý được bàn giao riêng. Backend kiểm tra đăng nhập ở từng yêu cầu. Không có chức năng mời nhân viên hoặc phân quyền nhiều tài khoản trong phiên bản này. Xem docs/GIT_SERVER_RETENTION.md để vận hành VPS và cập nhật.
 
 Cần mạng để tải và lưu. Có cảnh báo khi rời trang với phiếu đang soạn; hãy lưu nháp. Trình duyệt không giữ số tồn chính thức.
 
 ## Mở rộng
 
-Các bước có thể bổ sung theo nhu cầu thực: phân quyền nhân viên theo khu, xác nhận nhận hàng, nhập danh mục có bản xem trước, đồng bộ Sheets một chiều, định mức phòng/bộ setup, barcode, quản lý tài sản có mã riêng, mua hàng/công nợ, báo cáo giá vốn.
+Các bước có thể bổ sung theo nhu cầu thực: phân quyền nhân viên theo khu, xác nhận nhận hàng, nhập danh mục có bản xem trước, đồng bộ Sheets một chiều, định mức phòng/bộ setup, barcode, quản lý tài sản có mã riêng và báo cáo giá vốn.
 
 Các phần trên là hướng phát triển, chưa kích hoạt.
