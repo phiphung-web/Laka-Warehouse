@@ -7,7 +7,7 @@ if(!fs.existsSync(source))throw Error("Database is missing; no backup created");
 const db=new DatabaseSync(source,{readOnly:true});try{await backup(db,copy);}finally{db.close();}
 const check=new DatabaseSync(copy,{readOnly:true});try{if(check.prepare("PRAGMA integrity_check").get().integrity_check!=="ok")throw Error("Backup integrity failed");}finally{check.close();}
 await pipeline(fs.createReadStream(copy),createGzip(),fs.createWriteStream(copy+".gz",{mode:0o600}));fs.unlinkSync(copy);
-for(const name of ["owner.json","source-data.json"]){const file=path.join(data,name);if(fs.existsSync(file)){fs.copyFileSync(file,path.join(folder,name));fs.chmodSync(path.join(folder,name),0o600);}}
+for(const name of ["owner.json","viewers.json","source-data.json"]){const file=path.join(data,name);if(fs.existsSync(file)){fs.copyFileSync(file,path.join(folder,name));fs.chmodSync(path.join(folder,name),0o600);}}
 fs.writeFileSync(path.join(folder,"manifest.json"),JSON.stringify({createdAt:new Date().toISOString(),release:process.env.LAKA_RELEASE||"unknown",database:"warehouse.sqlite.gz",integrity:"ok",containsPrivateData:true},null,2),{mode:0o600});
 // Prune only completed task-owned snapshot directories after a new verified copy exists.
 const snapshots=fs.readdirSync(target).filter(n=>/^snapshot-\d{4}-\d\d-\d\dT[\d-]+Z$/.test(n)).sort().filter(n=>fs.existsSync(path.join(target,n,"manifest.json")));

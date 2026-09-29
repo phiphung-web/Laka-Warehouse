@@ -58,3 +58,4 @@ next-env.d.ts
 /releases/
 /artifacts/
 /owner.json
+/viewers.json

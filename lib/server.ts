@@ -7,7 +7,7 @@ import { canonicalJson, allocateNextItemCode as nextCode } from "./auto-code";
 export function db(){return getDatabase();}
 const initialLocations=[["KHO_TONG","Kho tổng"],["BUONG_PHONG","Buồng phòng"],["HOMESTAY","Homestay / Lễ tân"],["BEP","Bếp"],["NHA_HANG","Nhà hàng bên ngoài"],["CAFE","Cafe"],["DUNG_CHUNG","Dùng chung"]];
 export async function identity(){
- const user=await getWarehouseUser();if(!user)throw new Error("AUTH_REQUIRED");
+ const user=await getWarehouseUser();if(!user)throw new Error("AUTH_REQUIRED");if(user.role!=="owner")throw new Error("FORBIDDEN");
  const d=db(),now=new Date().toISOString();
  await d.prepare("INSERT OR IGNORE INTO settings (id,owner,revision,seeded,created_at) VALUES (1,?,0,0,?)").bind(user.userId,now).run();
  const config=await d.prepare("SELECT * FROM settings WHERE id=1").first<any>();

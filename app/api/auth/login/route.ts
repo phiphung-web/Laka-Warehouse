@@ -1,5 +1,5 @@
 import {NextResponse} from "next/server";
-import {readOwner,loginPermit,trustedMutation,publicOrigin} from "@/lib/auth-server";
+import {readOwner,readViewers,loginPermit,trustedMutation,publicOrigin} from "@/lib/auth-server";
 import {COOKIE_NAME,SESSION_SECONDS,issueSession,verifyPassword} from "@/lib/auth-core";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -11,9 +11,10 @@ export async function POST(request:Request){
  try{
   if(!request.headers.get("content-type")?.includes("application/json"))return reply("Định dạng không hợp lệ.",415);
   const text=await request.text();if(text.length>3000)return reply("Yêu cầu quá lớn.",413);
-  const body=JSON.parse(text),config=readOwner();if(!config)return reply("Chưa khởi tạo tài khoản quản lý trên server.",503);
-  if(!await verifyPassword(config,body.username,body.password))return reply("Tên đăng nhập hoặc mật khẩu chưa đúng.",401);
-  const response=NextResponse.json({ok:true},{headers:{"Cache-Control":"no-store"}});
+  const body=JSON.parse(text),owner=readOwner();if(!owner)return reply("Chưa khởi tạo tài khoản quản lý trên server.",503);
+  const config=body.username===owner.username?owner:readViewers().find(v=>v.username===body.username);
+  if(!config||!await verifyPassword(config,body.username,body.password))return reply("Tên đăng nhập hoặc mật khẩu chưa đúng.",401);
+  const response=NextResponse.json({ok:true,role:config.id===owner.id?"owner":"viewer"},{headers:{"Cache-Control":"no-store"}});
   response.cookies.set(COOKIE_NAME,issueSession(config),{httpOnly:true,secure:publicOrigin(request).startsWith("https://"),sameSite:"strict",path:"/",maxAge:SESSION_SECONDS});success=true;return response;
  }catch{return reply("Không thể đăng nhập. Kiểm tra dữ liệu và thử lại.",400);}finally{done(success);}
 }

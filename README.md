@@ -18,6 +18,7 @@
 - Chứng từ mua nội bộ có nhiều dòng, giảm giá, phí thêm; in hoặc lưu PDF qua hộp thoại in.
 - Ghi từng lần trả tiền, tính chưa trả/trả một phần/đã trả và khoản nợ quá hạn; đảo khoản trả, hủy chứng từ có lưu lịch sử.
 - Báo cáo chứng từ, công nợ theo NCC và CSV lịch sử thanh toán. Xem hướng dẫn chi tiết tại `docs/PURCHASING.md`.
+- Trang báo cáo chia sẻ chỉ đọc: tồn theo khu, chênh lệch kiểm kê, hóa đơn so với phiếu nhập và phiếu nhập chưa gắn hóa đơn; có CSV và in/PDF. Quản lý tự cấp/thu hồi tài khoản xem. Xem `docs/REVIEW_SHARING.md`.
 
 ## Khởi tạo
 
@@ -63,7 +64,7 @@ Nhập CSV vào Google Sheets qua Tệp → Nhập → Tải lên, dấu phân c
 
 ## Truy cập
 
-Truy cập https://139.180.223.190 bằng tài khoản quản lý được bàn giao riêng. Backend kiểm tra đăng nhập ở từng yêu cầu. Không có chức năng mời nhân viên hoặc phân quyền nhiều tài khoản trong phiên bản này. Xem docs/GIT_SERVER_RETENTION.md để vận hành VPS và cập nhật.
+Truy cập https://139.180.223.190 bằng tài khoản quản lý được bàn giao riêng. Backend kiểm tra đăng nhập ở từng yêu cầu. Quản lý có thể cấp tài khoản chỉ xem tại **Báo cáo chia sẻ**; tài khoản này chỉ xem báo cáo, không được lập phiếu, xem công nợ chi tiết hoặc tải bản sao toàn bộ dữ liệu. Xem docs/GIT_SERVER_RETENTION.md để vận hành VPS và cập nhật.
 
 Cần mạng để tải và lưu. Có cảnh báo khi rời trang với phiếu đang soạn; hãy lưu nháp. Trình duyệt không giữ số tồn chính thức.
 

@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import {origin,localAuth} from "./api-auth.mjs";
+const ownerCookie=await localAuth();
+const ownerReview=await fetch(origin+"/api/review",{headers:{cookie:ownerCookie}});assert.equal(ownerReview.status,200);
+const initial=await ownerReview.json();assert.ok(initial.summary&&Array.isArray(initial.stock)&&Array.isArray(initial.invoices));
+const created=await fetch(origin+"/api/viewers",{method:"POST",headers:{cookie:ownerCookie,origin,"content-type":"application/json"},body:JSON.stringify({action:"create",displayName:"QA người xem"})});assert.equal(created.status,200);const {viewer,password}=await created.json();assert.ok(viewer.username&&password.length>=20);
+const logged=await fetch(origin+"/api/auth/login",{method:"POST",headers:{origin,"content-type":"application/json"},body:JSON.stringify({username:viewer.username,password})});assert.equal(logged.status,200);assert.equal((await logged.json()).role,"viewer");const cookie=logged.headers.getSetCookie().map(s=>s.split(";")[0]).join("; ");
+assert.equal((await fetch(origin+"/api/review",{headers:{cookie}})).status,200);
+assert.equal((await fetch(origin+"/",{headers:{cookie},redirect:"manual"})).status,307);
+assert.equal((await fetch(origin+"/review",{headers:{cookie}})).status,200);
+assert.equal((await fetch(origin+"/api/kho",{headers:{cookie}})).status,403);
+assert.equal((await fetch(origin+"/api/kho?export=all",{headers:{cookie}})).status,403);
+assert.equal((await fetch(origin+"/api/kho",{method:"POST",headers:{cookie,origin,"content-type":"application/json"},body:JSON.stringify({action:"draft",id:crypto.randomUUID(),revision:0,payload:{}})})).status,403);
+assert.equal((await fetch(origin+"/api/viewers",{headers:{cookie}})).status,403);
+const revoked=await fetch(origin+"/api/viewers",{method:"POST",headers:{cookie:ownerCookie,origin,"content-type":"application/json"},body:JSON.stringify({action:"revoke",id:viewer.id})});assert.equal(revoked.status,200);
+assert.equal((await fetch(origin+"/api/review",{headers:{cookie}})).status,401);
+console.log("Read-only viewer API test passed.");
