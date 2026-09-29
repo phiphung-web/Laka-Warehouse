@@ -6,8 +6,10 @@ export const settings = sqliteTable("settings", {
 export const items = sqliteTable("items", {
  code:text("code").primaryKey(),name:text("name").notNull(),unit:text("unit").notNull(),category:text("category").notNull(),
  kind:text("kind").notNull().default("unclassified"),note:text("note").notNull().default(""),active:integer("active").notNull().default(1),
- packUnit:text("pack_unit").notNull().default(""),packSize:integer("pack_size").notNull().default(1000),updatedAt:text("updated_at").notNull(),
-});
+ packUnit:text("pack_unit").notNull().default(""),packSize:integer("pack_size").notNull().default(1000),
+ usageLocation:text("usage_location").references(()=>locations.id),
+ updatedAt:text("updated_at").notNull(),
+}, t=>[index("items_usage_location").on(t.usageLocation)]);
 export const locations = sqliteTable("locations", {
  id:text("id").primaryKey(),name:text("name").notNull(),active:integer("active").notNull().default(1),
 }, t=>[uniqueIndex("locations_name").on(t.name)]);
@@ -53,3 +55,18 @@ export const invoiceReceipts=sqliteTable("invoice_receipts",{
  invoiceId:text("invoice_id").notNull().references(()=>purchaseInvoices.id),txId:text("tx_id").notNull().references(()=>transactions.id),eventId:text("event_id").notNull().references(()=>events.id),
 },t=>[primaryKey({columns:[t.invoiceId,t.txId]}),index("receipt_invoice_link").on(t.txId)]);
 export const commerceRequests=sqliteTable("commerce_requests",{id:text("id").primaryKey().references(()=>events.id),request:text("request").notNull(),result:text("result").notNull()});
+export const catalogRequests=sqliteTable("catalog_requests",{id:text("id").primaryKey().references(()=>events.id),request:text("request").notNull(),result:text("result").notNull()});
+export const importProvenance=sqliteTable("import_provenance",{
+ id:text("id").primaryKey(),
+ sourceId:text("source_id").notNull(),
+ sourceTab:text("source_tab").notNull(),
+ rowNumber:integer("row_number").notNull(),
+ rowFingerprint:text("row_fingerprint").notNull(),
+ itemCode:text("item_code").notNull().references(()=>items.code),
+ location:text("location").notNull().references(()=>locations.id),
+ quantity:integer("quantity").notNull(),
+ enteredUnit:text("entered_unit").notNull(),
+ txId:text("tx_id").notNull().references(()=>transactions.id),
+ appliedAt:text("applied_at").notNull(),
+},t=>[uniqueIndex("import_source_tab_row").on(t.sourceId,t.sourceTab,t.rowNumber),index("import_provenance_tx").on(t.txId)]);
+

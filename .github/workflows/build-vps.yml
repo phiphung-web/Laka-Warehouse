@@ -29,6 +29,7 @@ jobs:
           node tests/commerce.test.mjs
           node tests/auth.test.mjs
           node tests/sqlite-adapter.test.mjs
+          node tests/importer-smoke.mjs
       - run: npm run build
       - name: Test real API with isolated SQLite data
         run: node tests/run-vps-api.mjs

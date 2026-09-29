@@ -5,7 +5,7 @@ export const SESSION_SECONDS=12*60*60;
 async function derive(password:string,salt:string){return new Promise<Buffer>((resolve,reject)=>scrypt(password,salt,64,{N:32768,r:8,p:1,maxmem:64*1024*1024},(e,key)=>e?reject(e):resolve(key)));}
 export async function createOwner(username:string,password:string,displayName="Quản lý kho"):Promise<OwnerConfig>{
  if(!/^[A-Za-z0-9_.-]{3,64}$/.test(username))throw new Error("Tên đăng nhập cần 3–64 ký tự, gồm chữ, số, dấu chấm/gạch.");
- if(password.length<12||password.length>256)throw new Error("Mật khẩu cần từ 12 đến 256 ký tự.");
+ if(password.length<8||password.length>256)throw new Error("Mật khẩu cần từ 8 đến 256 ký tự.");
  const salt=randomBytes(24).toString("hex");return {version:1,id:"owner-"+randomUUID(),username,displayName:displayName.trim().slice(0,100)||"Quản lý kho",salt,passwordHash:(await derive(password,salt)).toString("hex"),sessionSecret:randomBytes(48).toString("base64url"),createdAt:new Date().toISOString()};
 }
 export async function verifyPassword(config:OwnerConfig,username:unknown,password:unknown){

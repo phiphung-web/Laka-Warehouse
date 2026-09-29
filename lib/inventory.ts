@@ -1,13 +1,21 @@
 export const KINDS = {unclassified:"Chưa phân loại",consumable:"Tiêu hao",reusable:"Tái sử dụng",equipment:"Dụng cụ / thiết bị"};
 export const TYPES = {RECEIPT:"Nhập mua",TRANSFER:"Cấp / chuyển khu",RETURN:"Khu trả hàng",CONSUME:"Tiêu hao",DAMAGE:"Chuyển sang hàng hỏng",LOSS:"Mất / hủy hàng",SUPPLIER_RETURN:"Trả nhà cung cấp",COUNT:"Kiểm kê / số dư đầu",REVERSAL:"Đảo phiếu"};
 export type TxType=keyof typeof TYPES;
-export type Item={code:string;name:string;unit:string;category:string;kind:keyof typeof KINDS;note:string;active:number;pack_unit:string;pack_size:number};
+export type Item={code:string;name:string;unit:string;category:string;kind:keyof typeof KINDS;note:string;active:number;pack_unit:string;pack_size:number;usage_location?:string|null};
 export type Location={id:string;name:string;active:number};
 export type Balance={item:string;location:string;condition:string;lot:string;expiry:string;quantity:number;verified_at:string|null};
 export type Line={item:string;quantity:number;unitMode?:string;price?:number;lot?:string;expiry?:string;condition?:string};
 export type TxInput={id:string;revision:number;type:TxType;date:string;from?:string;to?:string;partner?:string;person?:string;note?:string;reference?:string;lines:Line[];reversalOf?:string};
 export type Posting=Balance;
-export type State={items:Item[];locations:Location[];balances:Balance[];minimums:{item:string;location:string;quantity:number}[];transactions:any[];drafts:any[];events:any[];revision:number;user:string;source:any;suppliers:import("./commerce").Supplier[];invoices:import("./commerce").Invoice[];payments:import("./commerce").Payment[];receiptLinks:import("./commerce").ReceiptLink[]};
+export type State={items:Item[];locations:Location[];balances:Balance[];minimums:{item:string;location:string;quantity:number}[];transactions:any[];drafts:any[];events:any[];revision:number;user:string;todayTxCount?:number;source:any;suppliers:import("./commerce").Supplier[];invoices:import("./commerce").Invoice[];payments:import("./commerce").Payment[];receiptLinks:import("./commerce").ReceiptLink[]};
+export const AREA_PREFIX_MAP: Record<string, string> = {BUONG_PHONG:"BP",HOMESTAY:"HS",CAFE:"CF",NHA_HANG:"NH",BEP:"BEP",KHO_TONG:"KT",DUNG_CHUNG:"DC"};
+export const KIND_PREFIX_MAP: Record<string, string> = {consumable:"TH",reusable:"TD",equipment:"TB",unclassified:"CL"};
+export function sanitizeAreaPrefix(locationId?: string | null): string {
+ if (!locationId) return "DC";
+ if (Object.hasOwn(AREA_PREFIX_MAP, locationId)) return AREA_PREFIX_MAP[locationId];
+ const s = locationId.replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+ return s.slice(0, 4) || "DC";
+}
 export function today(){return new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Ho_Chi_Minh",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());}
 export function normalize(s:string){return s.normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/đ/g,"d").replace(/Đ/g,"D").toLowerCase();}
 export function scaled(n:unknown,allowZero=false){

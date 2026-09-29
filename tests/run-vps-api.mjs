@@ -9,7 +9,7 @@ try{
  let ready=false;for(let i=0;i<40;i++){try{if((await fetch(origin+"/api/health")).status===200){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,500));}assert.ok(ready,"Server failed to start: "+logs);
  assert.equal((await fetch(origin+"/api/kho")).status,401);assert.equal((await fetch(origin+"/api/kho",{headers:{"oai-authenticated-user-id":"forged","oai-authenticated-user-email":"test@example.invalid"}})).status,401);
  assert.equal((await fetch(origin+"/api/auth/login",{method:"POST",headers:{origin:"https://invalid.example","content-type":"application/json"},body:"{}"})).status,403);
- for(const script of ["tests/api-smoke.mjs","tests/commerce-api-smoke.mjs"]){const r=spawnSync(process.execPath,[script],{env,encoding:"utf8",timeout:60000});if(r.status!==0)throw Error(r.stdout+r.stderr);process.stdout.write(r.stdout);}
+ for(const script of ["tests/api-smoke.mjs","tests/commerce-api-smoke.mjs","tests/catalog-flow-smoke.mjs","tests/importer-smoke.mjs"]){const r=spawnSync(process.execPath,[script],{env,encoding:"utf8",timeout:60000});if(r.status!==0)throw Error(r.stdout+r.stderr);process.stdout.write(r.stdout);}
  const backup=spawnSync(process.execPath,["scripts/backup-sqlite.mjs"],{env,encoding:"utf8",timeout:30000});assert.equal(backup.status,0,backup.stderr);const snapshot=JSON.parse(backup.stdout);assert.equal(snapshot.integrity,"ok");
  const restoredFile=path.join(dir,"restore-test.sqlite");
  const compressed=fs.readFileSync(path.join(snapshot.snapshot,"warehouse.sqlite.gz"));

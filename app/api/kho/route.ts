@@ -1,4 +1,4 @@
-import { identity,state,mutate,backup } from "@/lib/server";
+import { identity,state,mutate,backup,stockFlowReport } from "@/lib/server";
 import {trustedMutation} from "@/lib/auth-server";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -14,7 +14,14 @@ function error(e:any){
  if(/D1_|SQLITE_|no such table|binding/.test(text)){console.error(text);return response({error:"Kho dữ liệu tạm thời chưa sẵn sàng. Nội dung bạn nhập vẫn được giữ; thử lại sau."},503);}
  return response({error:text.slice(0,400)},400);
 }
-export async function GET(request:Request){try{const user=await identity();return response(new URL(request.url).searchParams.get("export")==="all"?await backup():await state(user));}catch(e){return error(e);}}
+export async function GET(request:Request){
+ try{
+  const user=await identity();
+  const url=new URL(request.url);
+  if(url.searchParams.get("report")==="flow")return response(await stockFlowReport(url.searchParams));
+  return response(url.searchParams.get("export")==="all"?await backup():await state(user));
+ }catch(e){return error(e);}
+}
 export async function POST(request:Request){try{
  if(!trustedMutation(request))return response({error:"Nguồn yêu cầu không hợp lệ."},403);
  if(!request.headers.get("content-type")?.includes("application/json"))return response({error:"Định dạng yêu cầu không hợp lệ."},415);
