@@ -6,6 +6,7 @@ import { CheckIcon, ChevronDownIcon, XIcon } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { DialogPopupContainer } from "@/components/ui/dialog"
 import {
   InputGroup,
   InputGroupAddon,
@@ -102,8 +103,9 @@ function ComboboxContent({
     ComboboxPrimitive.Positioner.Props,
     "side" | "align" | "sideOffset" | "alignOffset" | "anchor"
   >) {
+  const dialogContainer = React.useContext(DialogPopupContainer)
   return (
-    <ComboboxPrimitive.Portal>
+    <ComboboxPrimitive.Portal container={dialogContainer}>
       <ComboboxPrimitive.Positioner
         side={side}
         sideOffset={sideOffset}
