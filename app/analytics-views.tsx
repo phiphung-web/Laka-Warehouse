@@ -68,7 +68,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
   }
  },[from,to,location,usage,item]);
 
- useEffect(()=>{fetchReport();},[fetchReport]);
+ useEffect(()=>{fetchReport();return ()=>{reqIdRef.current++;};},[fetchReport]);
 
  function exportCsv(){
   if(!report?.rows||loading||error)return;
@@ -133,7 +133,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
 
    {error&&<div className="bg-red-50 text-red-800 border border-red-200 rounded-xl p-4 mb-5" role="alert">{error}</div>}
 
-   {report?.summaryByUnit?.length>0&&(
+   {report&&report.summaryByUnit.length>0&&(
     <section className="mb-6">
      <h2 className="text-sm font-semibold mb-3">Tổng hợp luồng hàng theo đơn vị tính ({report.summaryByUnit.length} đơn vị)</h2>
      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">

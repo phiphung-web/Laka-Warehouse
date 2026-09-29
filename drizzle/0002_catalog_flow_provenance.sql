@@ -29,4 +29,4 @@ CREATE INDEX `import_provenance_tx` ON `import_provenance` (`tx_id`);--> stateme
 CREATE TRIGGER catalog_request_no_update BEFORE UPDATE ON catalog_requests BEGIN SELECT RAISE(ABORT,'IMMUTABLE_CATALOG_REQUEST'); END;--> statement-breakpoint
 CREATE TRIGGER catalog_request_no_delete BEFORE DELETE ON catalog_requests BEGIN SELECT RAISE(ABORT,'IMMUTABLE_CATALOG_REQUEST'); END;--> statement-breakpoint
 CREATE TRIGGER import_provenance_no_update BEFORE UPDATE ON import_provenance BEGIN SELECT RAISE(ABORT,'IMMUTABLE_IMPORT_PROVENANCE'); END;--> statement-breakpoint
-CREATE TRIGGER import_provenance_no_delete BEFORE DELETE ON import_provenance BEGIN SELECT RAISE(ABORT,'IMMUTABLE_IMPORT_PROVENANCE');
+CREATE TRIGGER import_provenance_no_delete BEFORE DELETE ON import_provenance BEGIN SELECT RAISE(ABORT,'IMMUTABLE_IMPORT_PROVENANCE'); END;

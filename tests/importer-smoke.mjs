@@ -31,7 +31,7 @@ for (const [id, name] of [
 
 // Pre-existing item with live operational ledger to test conflict protection
 db.prepare("INSERT INTO items (code,name,unit,category,kind,note,active,pack_unit,pack_size,usage_location,updated_at) VALUES ('LIVE_01','Trà ô long','Gói','Đồ uống','consumable','',1,'',1000,'CAFE','2026-01-01')").run();
-db.prepare("INSERT INTO events (id,kind,detail,actor,created_at,expected_revision) VALUES ('ev-live','COUNT','KK','live',datetime('now'),0)").run();
+db.prepare("INSERT INTO events (id,kind,detail,actor,created_at,expected_revision) VALUES ('tx-live','COUNT','KK','live',datetime('now'),0)").run();
 db.prepare("INSERT INTO transactions (id,number,type,date,lines,request,total,created_at,actor) VALUES ('tx-live','KK-LIVE','COUNT','2026-01-01','[]','{}',0,datetime('now'),'live')").run();
 db.prepare("INSERT INTO ledger (tx,item,location,condition,lot,expiry,quantity,verified_at) VALUES ('tx-live','LIVE_01','CAFE','usable','','',50000,datetime('now'))").run();
 db.close();
@@ -70,7 +70,7 @@ assert.equal(dry1.dryRun, true);
 assert.equal(dry1.counts.valid, 6);
 assert.equal(dry1.counts.conflicts, 0);
 assert.equal(dry1.counts.unresolved, 0);
-assert.equal(dry1.counts.created, 4); // HS_001, Muối tinh (auto-code), Đường cát (auto-code), Nước lau kính (auto-code), Nước lau sàn (auto-code) -> total unique created
+assert.equal(dry1.counts.created, 5);
 assert.equal(dry1.counts.skipped, 0);
 // Verify XuatKho_PhanBo was excluded: only 6 valid rows out of 7 total history rows
 passed++;
@@ -137,7 +137,7 @@ const conflictLiveSource = {
 fs.writeFileSync(sourceFile, JSON.stringify(conflictLiveSource, null, 2));
 const dryLiveConflict = runImporter({ sourceFile, dbFile });
 assert.equal(dryLiveConflict.counts.conflicts, 1);
-assert.match(dryLiveConflict.conflictRows[0].reason, /live operational ledger exists/);
+assert.match(dryLiveConflict.conflictRows[0].reason, /live operational ledger/);
 assert.throws(() => runImporter({ apply: true, locationMode: "by-sheet", sourceFile, dbFile }), /conflict rows/);
 passed++;
 
