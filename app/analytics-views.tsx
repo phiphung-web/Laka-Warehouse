@@ -8,7 +8,7 @@ import {KINDS,normalize,today,type State} from "@/lib/inventory";
 import {Heading,Pick,SearchBox,Empty,qty,dt,download,csv} from "./kho-ui";
 
 export interface FlowReportResponse {
- filters: { from: string; to: string; location: string; item: string; usage: string };
+ filters: { from: string; to: string; location: string; item: string; usage: string; category: string };
  summaryByUnit: {
   unit: string; itemCount: number; opening: number; receipt: number; transferIn: number; transferOut: number;
   returnIn: number; returnOut: number; consumption: number; damageIn: number; damageOut: number; damageNet: number;
@@ -32,6 +32,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
  const [location,setLocation]=useState("all");
  const [usage,setUsage]=useState("all");
  const [item,setItem]=useState("all");
+ const [category,setCategory]=useState("all");
  const [report,setReport]=useState<FlowReportResponse|null>(null);
  const reqIdRef=useRef(0);
  const [loading,setLoading]=useState(false);
@@ -49,6 +50,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
    if(location!=="all")params.set("location",location);
    if(usage!=="all")params.set("usage",usage);
    if(item!=="all")params.set("item",item);
+   if(category!=="all")params.set("category",category);
    const res=await fetch("/api/kho?"+params.toString());
    const raw:unknown=await res.json();
    if(curReqId!==reqIdRef.current)return;
@@ -66,7 +68,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
     setLoading(false);
    }
   }
- },[from,to,location,usage,item]);
+ },[from,to,location,usage,item,category]);
 
  useEffect(()=>{fetchReport();return ()=>{reqIdRef.current++;};},[fetchReport]);
 
@@ -83,7 +85,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
    r.consumption,r.damageIn,r.damageOut,r.damageNet,r.loss,r.supplierReturn,r.countAdjustment,r.reversal,r.periodNet,r.closing
   ]);
   const rf=report.filters;
-  const suffix=[rf.location!=="all"?rf.location:"",rf.usage!=="all"?"usage-"+rf.usage:"",rf.item!=="all"?rf.item:""].filter(Boolean).join("-");
+  const suffix=[rf.location!=="all"?rf.location:"",rf.usage!=="all"?"usage-"+rf.usage:"",rf.item!=="all"?rf.item:"",rf.category!=="all"?rf.category:""].filter(Boolean).join("-");
   const filename=`luong-hang-${rf.from}-${rf.to}${suffix?"-"+suffix:""}.csv`;
   download(filename,csv([headers,...rows]),"text/csv;charset=utf-8");
  }
@@ -107,7 +109,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
    </Heading>
 
    <div className="panel mb-6 p-4">
-    <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-3">
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
      <div>
       <label className="text-xs font-semibold subtle mb-1 block">Từ ngày</label>
       <Input type="date" value={from} onChange={e=>setFrom(e.target.value)}/>
@@ -125,7 +127,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
       <Pick label="Khu dự kiến" value={usage} onChange={setUsage} options={[{value:"all",label:"Tất cả khu dự kiến"},{value:"unassigned",label:"Chưa gán khu dự kiến"},...data.locations.map(l=>({value:l.id,label:l.name}))]}/>
      </div>
      <div>
-      <label className="text-xs font-semibold subtle mb-1 block">Mặt hàng</label>
+      <label className="text-xs font-semibold subtle mb-1 block">Nhóm hàng</label><Pick label="Nhóm hàng báo cáo" value={category} onChange={setCategory} options={[{value:"all",label:"Tất cả nhóm hàng"},...Array.from(new Set(data.items.map(i=>i.category))).filter(Boolean).map(value=>({value,label:value}))]}/></div><div><label className="text-xs font-semibold subtle mb-1 block">Mặt hàng</label>
       <Pick label="Mặt hàng" value={item} onChange={setItem} options={[{value:"all",label:"Tất cả mặt hàng"},...data.items.filter(i=>i.active).map(i=>({value:i.code,label:i.name+" ("+i.code+")"}))]}/>
      </div>
     </div>

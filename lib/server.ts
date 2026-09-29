@@ -33,10 +33,13 @@ export async function state(user:any){
   d.prepare("SELECT id,kind,detail,actor,created_at FROM events ORDER BY created_at DESC,id DESC LIMIT 300"),
   d.prepare("SELECT revision FROM settings WHERE id=1"),
   d.prepare("SELECT COUNT(*) as n FROM transactions WHERE date=?").bind(today()),
+  d.prepare("SELECT DISTINCT trim(person) AS value FROM transactions WHERE trim(person)<>'' ORDER BY value"),
+  d.prepare("SELECT DISTINCT trim(partner) AS value FROM transactions WHERE trim(partner)<>'' AND type IN ('RECEIPT','SUPPLIER_RETURN') ORDER BY value"),
  ]);
  return {...await commerceState(d),items:out[0].results,locations:out[1].results,balances:out[2].results,minimums:out[3].results,
  transactions:out[4].results.map((t:any)=>({...t,lines:JSON.parse(t.lines)})),drafts:out[5].results.map((t:any)=>({...t,payload:JSON.parse(t.payload)})),
  events:out[6].results,revision:(out[7].results[0] as any).revision,todayTxCount:(out[8].results[0] as any)?.n??0,user:user.displayName,
+ choices:{people:out[9].results.map((r:any)=>r.value),partners:out[10].results.map((r:any)=>r.value)},
  source:{title:source.sourceTitle,id:source.sourceId,date:source.importedAt,items:source.items.length,history:source.history}};
 }
 function clean(v:unknown,max=500){if(v===undefined||v===null)return "";if(typeof v!=="string"||v.length>max)throw new Error("Nội dung không hợp lệ hoặc quá dài.");return v.trim();}
@@ -221,9 +224,12 @@ export async function stockFlowReport(params:URLSearchParams){
   const uLoc=await d.prepare("SELECT id FROM locations WHERE id=?").bind(usage).first();
   if(!uLoc)throw new Error("Khu dự kiến không tồn tại.");
  }
- const filters={from,to,location:location||"all",item:item||"all",usage:usage||"all"};
+ const category=clean(params.get("category")||"",100);
+ if(category&&category!=="all"&&!await d.prepare("SELECT code FROM items WHERE category=? LIMIT 1").bind(category).first())throw new Error("Nhóm hàng không tồn tại.");
+ const filters={from,to,location:location||"all",item:item||"all",usage:usage||"all",category:category||"all"};
  const whereClauses:string[]=["t.date <= ?"];
  const whereBindings:any[]=[to];
+ if(category&&category!=="all"){whereClauses.push("i.category = ?");whereBindings.push(category);}
  if(location&&location!=="all"){whereClauses.push("l.location = ?");whereBindings.push(location);}
  if(item&&item!=="all"){whereClauses.push("l.item = ?");whereBindings.push(item);}
  if(usage&&usage!=="all"){
@@ -298,6 +304,7 @@ export async function stockFlowReport(params:URLSearchParams){
   }));
   const edgeWhere:string[]=["t.date >= ?","t.date <= ?","t.type IN ('TRANSFER','RETURN')","l.quantity > 0"];
   const edgeBindings:any[]=[from,to];
+  if(category&&category!=="all"){edgeWhere.push("i.category = ?");edgeBindings.push(category);}
   if(location&&location!=="all"){edgeWhere.push("(t.from_location = ? OR t.to_location = ?)");edgeBindings.push(location,location);}
   if(item&&item!=="all"){edgeWhere.push("l.item = ?");edgeBindings.push(item);}
   if(usage&&usage!=="all"){
@@ -309,6 +316,7 @@ export async function stockFlowReport(params:URLSearchParams){
   const transferEdges=rawEdges.map(e=>({fromId:e.from_id,fromName:e.from_name,toId:e.to_id,toName:e.to_name,item:e.item,itemName:e.item_name,unit:e.unit,txCount:e.tx_count,quantity:e.quantity/1000}));
   const dailyWhere=["t.date >= ?","t.date <= ?"];
   const dailyBindings=[from,to];
+  if(category&&category!=="all"){dailyWhere.push("i.category = ?");dailyBindings.push(category);}
   if(location&&location!=="all"){dailyWhere.push("l.location = ?");dailyBindings.push(location);}
   if(item&&item!=="all"){dailyWhere.push("l.item = ?");dailyBindings.push(item);}
   if(usage&&usage!=="all"){

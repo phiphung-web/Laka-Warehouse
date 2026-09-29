@@ -1,4 +1,5 @@
 import {prepareSupplier,prepareInvoice,validatePayment,recordId,textValue,documentDate,type Invoice} from "./commerce.ts";
+import {allocateNextItemCode} from "./auto-code.ts";
 
 // The storage interface is deliberately limited to parameterized statements and atomic batches.
 export interface Statement {bind(...values:any[]):Statement;first<T=any>():Promise<T|null>;all<T=any>():Promise<{results:T[]}>;run():Promise<any>}
@@ -31,9 +32,14 @@ export async function mutateCommerce(d:Database,body:any,user:{displayName:strin
  const statements=[d.prepare("INSERT INTO events(id,kind,detail,actor,created_at,expected_revision) VALUES(?,?,?,?,?,?)").bind(id,action,JSON.stringify(p),actor,now,body.revision)];
  let result:any={id};
  if(action==="supplier"){
-  const supplier=prepareSupplier(p),keys=Object.keys(supplier);
+  let code=textValue(p.code,40);
+  if(!code){
+   const existing=await d.prepare("SELECT code FROM suppliers WHERE id=?").bind(recordId(p.id)).first();
+   code=existing?.code??allocateNextItemCode((await d.prepare("SELECT code FROM suppliers").all()).results.map(r=>r.code),"NCC-");
+  }
+  const supplier=prepareSupplier({...p,code}),keys=Object.keys(supplier);
   statements.push(d.prepare(`INSERT INTO suppliers(${keys.join(",")}) VALUES(${keys.map(()=>"?").join(",")}) ON CONFLICT(id) DO UPDATE SET ${keys.filter(k=>k!=="id").map(k=>k+"=excluded."+k).join(",")}`).bind(...keys.map(k=>(supplier as any)[k])));
-  result={id:supplier.id};
+  result={id:supplier.id,code:supplier.code};
  }else if(action==="invoice"){
   const prepared=prepareInvoice(p),supplier=await d.prepare("SELECT * FROM suppliers WHERE id=? AND active=1").bind(prepared.supplier_id).first();
   if(!supplier)throw new Error("Chọn nhà cung cấp đang hoạt động.");

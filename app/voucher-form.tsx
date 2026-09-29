@@ -8,6 +8,8 @@ import {Dialog,DialogContent,DialogHeader,DialogTitle,DialogDescription,DialogFo
 import {Table,TableHeader,TableRow,TableHead,TableBody,TableCell} from "@/components/ui/table";
 import {Field,Pick,ItemPicker,qty,money,Heading} from "./kho-ui";
 import {TYPES,prepareTransaction,key,today,type State,type TxType} from "@/lib/inventory";
+import {ChoiceField,NoteField} from "./choice-fields";
+import {mergeOptions} from "@/lib/form-options";
 export function newVoucher(type:TxType="RECEIPT",revision=0,user=""){return {id:crypto.randomUUID(),revision,type,date:today(),from:"KHO_TONG",to:type==="TRANSFER"?"BUONG_PHONG":"KHO_TONG",partner:"",person:user,note:"",reference:"",lines:[{item:"",quantity:"",price:"",unitMode:"base",lot:"",expiry:"",condition:"usable"}]};}
 export default function VoucherForm({data,form,setForm,execute,busy,onDone}:{data:State;form:any;setForm:(v:any)=>void;execute:any;busy:boolean;onDone:any}){
  const [review,setReview]=useState<any>(null),[error,setError]=useState("");
@@ -27,8 +29,8 @@ export default function VoucherForm({data,form,setForm,execute,busy,onDone}:{dat
  <Field label="Ngày thực tế"><Input aria-label="Ngày thực tế" type="date" max={today()} value={form.date} onChange={e=>set("date",e.target.value)}/></Field>
  {outgoing&&<Field label="Xuất từ khu"><Pick label="Xuất từ khu" value={form.from} onChange={v=>set("from",v)} options={options}/></Field>}
  {(transfer||type==="RECEIPT"||count)&&<Field label={count?"Khu đang kiểm kê":"Nơi nhận thực tế"} hint={type==="RECEIPT"?"Chọn khu trực tiếp nhận hàng, kể cả khi hàng không qua kho tổng.":undefined}><Pick label="Nơi nhận thực tế" value={form.to} onChange={v=>set("to",v)} options={options}/></Field>}
- {["RECEIPT","SUPPLIER_RETURN"].includes(type)&&<Field label="Nhà cung cấp *">{!!data.suppliers.length&&<Pick label="Chọn nhà cung cấp đã lưu" value={data.suppliers.find(s=>s.name===form.partner)?.id??""} onChange={v=>set("partner",data.suppliers.find(s=>s.id===v)?.name??"")} options={data.suppliers.filter(s=>s.active).map(s=>({value:s.id,label:s.name+" · "+s.code}))}/>}<Input value={form.partner} onChange={e=>set("partner",e.target.value)} placeholder="Tên nhà cung cấp"/></Field>}
- <Field label={transfer||type==="RECEIPT"?"Người nhận / kiểm hàng *":"Người thực hiện"}><Input value={form.person} onChange={e=>set("person",e.target.value)} placeholder="Họ tên người nhận"/></Field>
+ {["RECEIPT","SUPPLIER_RETURN"].includes(type)&&<Field label="Nhà cung cấp *"><ChoiceField label="Nhà cung cấp" value={form.partner} onChange={v=>set("partner",v)} options={mergeOptions(data.suppliers.filter(s=>s.active).map(s=>s.name),data.choices?.partners??[])} maxLength={200}/></Field>}
+ <Field label={transfer||type==="RECEIPT"?"Người nhận / kiểm hàng *":"Người thực hiện"}><ChoiceField label="Người nhận / thực hiện" value={form.person} onChange={v=>set("person",v)} options={mergeOptions([data.user],data.choices?.people??[])} maxLength={200}/></Field>
  <Field label="Hóa đơn / chứng từ liên quan"><Input value={form.reference} onChange={e=>set("reference",e.target.value)} placeholder="Số hóa đơn, phiếu giao hàng…"/></Field>
  </div></div>
  <div className="flex justify-between items-center mb-4 gap-3"><h2 className="text-lg font-semibold">Hàng hóa <span className="subtle">({form.lines.length} dòng)</span></h2><Button variant="outline" onClick={()=>set("lines",[...form.lines,{item:"",quantity:"",price:"",unitMode:"base",lot:"",expiry:"",condition:"usable"}])} disabled={form.lines.length>=100}><Plus/> Thêm hàng</Button></div>
@@ -48,7 +50,7 @@ export default function VoucherForm({data,form,setForm,execute,busy,onDone}:{dat
  <Field label="Tình trạng"><Pick label={"Tình trạng dòng "+(i+1)} value={l.condition} onChange={v=>row(i,"condition",v)} options={[{value:"usable",label:"Dùng được"},{value:"damaged",label:"Hỏng / chờ xử lý"}]}/></Field>
 
  </div></details></section>;})}</div>
- <div className="panel my-5"><Field label={["CONSUME","DAMAGE","LOSS","SUPPLIER_RETURN","COUNT"].includes(type)?"Lý do / nội dung *":"Ghi chú"}><Textarea value={form.note} onChange={e=>set("note",e.target.value)} placeholder={count?"Kiểm kê đầu kỳ / kiểm kê định kỳ; giải thích chênh lệch nếu có.":"Nội dung bàn giao, công việc hoặc lý do phát sinh…"} rows={3}/></Field>{count&&<p className="subtle mt-3 flex gap-2"><Info size={18} className="shrink-0"/>Nhập số 0 nếu đã kiểm tra và không còn hàng. Các hàng chưa đưa vào phiếu vẫn giữ nguyên.</p>}</div>
+ <div className="panel my-5"><Field label={["CONSUME","DAMAGE","LOSS","SUPPLIER_RETURN","COUNT"].includes(type)?"Lý do / nội dung *":"Ghi chú"}><NoteField kind={type} label="Lý do / nội dung" value={form.note} onChange={v=>set("note",v)}/></Field>{count&&<p className="subtle mt-3 flex gap-2"><Info size={18} className="shrink-0"/>Nhập số 0 nếu đã kiểm tra và không còn hàng. Các hàng chưa đưa vào phiếu vẫn giữ nguyên.</p>}</div>
  {error&&<p className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl mb-4" role="alert">{error}</p>}
  <div className="sticky-actions flex flex-wrap justify-between items-center gap-3"><span className="subtle">{form.lines.length} dòng · Chưa ghi vào tồn kho</span><div className="flex gap-2"><Button variant="outline" disabled={busy} onClick={draft}><Save/> Lưu nháp</Button><Button disabled={busy} onClick={preview}>Xem lại phiếu <ArrowRight/></Button></div></div>
  <Dialog open={!!review} onOpenChange={v=>!v&&!busy&&setReview(null)}><DialogContent className="sm:max-w-3xl max-h-[88vh] overflow-y-auto"><DialogHeader><DialogTitle>Xác nhận {TYPES[type].toLowerCase()}</DialogTitle><DialogDescription>{review?.from?label(review.from)+" → ":""}{review?.to?label(review.to):"Ghi giảm tại nơi xuất"} · {form.date}</DialogDescription></DialogHeader>

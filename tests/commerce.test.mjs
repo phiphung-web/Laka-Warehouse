@@ -7,6 +7,20 @@ import {commerceState,mutateCommerce} from "../lib/commerce-server.ts";
 
 const uid=()=>crypto.randomUUID(),user={displayName:"Kiểm thử"};
 const invoiceInput=(supplier_id,extra={})=>({supplier_id,date:"2026-01-01",due_date:"2026-01-05",buyer_name:"LAKA",lines:[{name:"Khăn",unit:"Cái",quantity:10,price:20000}],discount:10000,shipping:10000,...extra});
+test("Automatic supplier codes are unique, replay safely and preserve existing codes",async()=>{
+ const f=fixture();try{
+  const id=uid(),requestId=uid(),payload={id,code:"",name:"Automatic supplier",terms_days:7};
+  const revision=f.revision(),first=await f.send("supplier",payload,{id:requestId,revision});
+  assert.equal(first.code,"NCC-0001");
+  const second=await f.send("supplier",{id:uid(),name:"Second supplier"});assert.equal(second.code,"NCC-0002");
+  const replay=await f.send("supplier",payload,{id:requestId,revision});assert.equal(replay.code,first.code);assert.equal(replay.replayed,true);
+  await assert.rejects(f.send("supplier",{...payload,name:"Changed"},{id:requestId}),/nội dung khác/);
+  const edited=await f.send("supplier",{...payload,name:"Renamed supplier"});assert.equal(edited.code,first.code);
+  assert.equal((await f.state()).suppliers.length,2);
+  const stale=f.revision();await f.send("supplier",{id:uid(),name:"Third supplier"});
+  await assert.rejects(f.send("supplier",{id:uid(),name:"Stale supplier"},{revision:stale}),/STALE/);
+ }finally{f.sqlite.close();}
+});
 function fixture(){
  const sqlite=new DatabaseSync(":memory:");sqlite.exec("PRAGMA foreign_keys=ON");
  for(const file of fs.readdirSync(new URL("../drizzle/",import.meta.url)).filter(f=>f.endsWith(".sql")).sort())sqlite.exec(fs.readFileSync(new URL("../drizzle/"+file,import.meta.url),"utf8"));

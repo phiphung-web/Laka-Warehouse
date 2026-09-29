@@ -7,7 +7,7 @@ export type Balance={item:string;location:string;condition:string;lot:string;exp
 export type Line={item:string;quantity:number;unitMode?:string;price?:number;lot?:string;expiry?:string;condition?:string};
 export type TxInput={id:string;revision:number;type:TxType;date:string;from?:string;to?:string;partner?:string;person?:string;note?:string;reference?:string;lines:Line[];reversalOf?:string};
 export type Posting=Balance;
-export type State={items:Item[];locations:Location[];balances:Balance[];minimums:{item:string;location:string;quantity:number}[];transactions:any[];drafts:any[];events:any[];revision:number;user:string;todayTxCount?:number;source:any;suppliers:import("./commerce").Supplier[];invoices:import("./commerce").Invoice[];payments:import("./commerce").Payment[];receiptLinks:import("./commerce").ReceiptLink[]};
+export type State={items:Item[];locations:Location[];balances:Balance[];minimums:{item:string;location:string;quantity:number}[];transactions:any[];drafts:any[];events:any[];revision:number;user:string;todayTxCount?:number;choices?:{people:string[];partners:string[]};source:any;suppliers:import("./commerce").Supplier[];invoices:import("./commerce").Invoice[];payments:import("./commerce").Payment[];receiptLinks:import("./commerce").ReceiptLink[]};
 export const AREA_PREFIX_MAP: Record<string, string> = {BUONG_PHONG:"BP",HOMESTAY:"HS",CAFE:"CF",NHA_HANG:"NH",BEP:"BEP",KHO_TONG:"KT",DUNG_CHUNG:"DC"};
 export const KIND_PREFIX_MAP: Record<string, string> = {consumable:"TH",reusable:"TD",equipment:"TB",unclassified:"CL"};
 export function sanitizeAreaPrefix(locationId?: string | null): string {

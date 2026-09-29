@@ -369,7 +369,13 @@ for(let n=0;n<501;n++){
  assert.equal(out.status,200,JSON.stringify(out));
 }
 stressState=await state();assert.equal(stressState.transactions.length,500);assert.ok(stressState.todayTxCount>500);
+assert.ok(stressState.choices.people.includes("Thử nghiệm"),"Recipient choices must retain people outside latest 500 transactions");
+assert.ok(stressState.choices.partners.includes("NCC Flow"),"Supplier choices must retain older receipts");
 const fullHistory=await getFlow({item:flowItem,from:today(),to:today()});
 assert.equal(fullHistory.body.rows[0].receipt,10);assert.equal(fullHistory.body.rows[0].consumption,10);
 assert.equal(fullHistory.body.rows[0].closing,0);passed++;
+const categoryReport=await getFlow({category:"Test",from:today(),to:today()});
+assert.equal(categoryReport.status,200);assert.ok(categoryReport.body.rows.length>0);
+assert.ok(categoryReport.body.rows.every(r=>r.category==="Test"));assert.equal(categoryReport.body.filters.category,"Test");
+assert.equal((await getFlow({category:"MissingCategory"})).status,400);passed++;
 console.log(JSON.stringify({ catalogFlowChecksPassed: passed }));
