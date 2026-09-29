@@ -9,11 +9,6 @@ import {Heading,Pick,SearchBox,Empty,qty,dt,download,csv} from "./kho-ui";
 
 export interface FlowReportResponse {
  filters: { from: string; to: string; location: string; item: string; usage: string; category: string };
- summaryByUnit: {
-  unit: string; itemCount: number; opening: number; receipt: number; transferIn: number; transferOut: number;
-  returnIn: number; returnOut: number; consumption: number; damageIn: number; damageOut: number; damageNet: number;
-  loss: number; supplierReturn: number; countAdjustment: number; reversal: number; periodNet: number; closing: number;
- }[];
  rows: {
   item: string; itemName: string; unit: string; category: string; kind: string;
   usageLocation: string | null; usageLocationName: string; location: string; locationName: string; condition: string;
@@ -21,8 +16,10 @@ export interface FlowReportResponse {
   consumption: number; damageIn: number; damageOut: number; damageNet: number; loss: number; supplierReturn: number;
   countAdjustment: number; reversal: number; periodNet: number; closing: number;
  }[];
- transferEdges: { fromId: string; fromName: string; toId: string; toName: string; item: string; itemName: string; unit: string; txCount: number; quantity: number }[];
- daily: { date: string; unit: string; receipt: number; transferIn: number; transferOut: number; returnIn: number; returnOut: number; consumption: number; damageNet: number; loss: number; supplierReturn: number; countAdjustment: number; reversal: number; periodNet: number }[];
+ receiptRoutes: { partner: string; toId: string; toName: string; item: string; itemName: string; unit: string; txCount: number; quantity: number; firstDate: string; lastDate: string }[];
+ transferEdges: { type: "TRANSFER"|"RETURN"; fromId: string; fromName: string; toId: string; toName: string; item: string; itemName: string; unit: string; txCount: number; quantity: number; firstDate: string; lastDate: string }[];
+ outboundRoutes: { type: "CONSUME"|"LOSS"|"SUPPLIER_RETURN"; partner: string; fromId: string; fromName: string; item: string; itemName: string; unit: string; txCount: number; quantity: number; firstDate: string; lastDate: string }[];
+ daily: { date: string; location: string; locationName: string; item: string; itemName: string; unit: string; receipt: number; transferIn: number; transferOut: number; returnIn: number; returnOut: number; consumption: number; damageNet: number; loss: number; supplierReturn: number; countAdjustment: number; reversal: number; periodNet: number }[];
  rowCount: number;
 }
 
@@ -56,7 +53,7 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
    if(curReqId!==reqIdRef.current)return;
    const out=raw as {error?:string}&Partial<FlowReportResponse>;
    if(!res.ok||out.error)throw new Error(out.error||"Không thể tải báo cáo luồng hàng.");
-   if(!out.rows||!out.summaryByUnit||!out.filters)throw new Error("Dữ liệu báo cáo không đúng định dạng.");
+   if(!out.rows||!out.receiptRoutes||!out.transferEdges||!out.outboundRoutes||!out.daily||!out.filters)throw new Error("Dữ liệu báo cáo không đúng định dạng.");
    setReport(out as FlowReportResponse);
    setPage(0);
   }catch(e:any){
@@ -90,6 +87,24 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
   download(filename,csv([headers,...rows]),"text/csv;charset=utf-8");
  }
 
+ function exportRoutesCsv(){
+  if(!report||loading||error)return;
+  const headers=["Loại luồng","Từ","Nơi nhận / xử lý","Mã hàng","Tên hàng","Số lượng","Đơn vị","Số phiếu","Ngày đầu","Ngày cuối"];
+  const rows=routes.map(r=>[r.type,r.from,r.toName,r.item,r.itemName,r.quantity,r.unit,r.txCount,r.firstDate,r.lastDate]);
+  download(`tuyen-hang-${report.filters.from}-${report.filters.to}.csv`,csv([headers,...rows]),"text/csv;charset=utf-8");
+ }
+
+ const routes=report?[
+  ...report.receiptRoutes.map(r=>({...r,type:"Nhập từ NCC",from:r.partner})),
+  ...report.transferEdges.map(e=>({...e,type:e.type==="RETURN"?"Khu trả hàng":"Chuyển khu",from:e.fromName})),
+  ...report.outboundRoutes.map(o=>({...o,type:o.type==="SUPPLIER_RETURN"?"Trả nhà cung cấp":o.type==="CONSUME"?"Tiêu hao":"Mất / hủy",from:o.fromName,toName:o.type==="SUPPLIER_RETURN"?o.partner:o.type==="CONSUME"?"Tiêu hao tại khu":"Mất / hủy tại khu"}))
+ ].sort((a,b)=>b.lastDate.localeCompare(a.lastDate)||a.toName.localeCompare(b.toName)||a.itemName.localeCompare(b.itemName)):[];
+ const areas=data.locations.filter(l=>location==="all"||l.id===location).map(l=>{
+  const lines=(report?.rows??[]).filter(r=>r.location===l.id);
+  const count=(test:(r:FlowReportResponse["rows"][number])=>boolean)=>new Set(lines.filter(test).map(r=>r.item)).size;
+  return {id:l.id,name:l.name,items:count(()=>true),available:count(r=>r.closing>0),received:new Set((report?.receiptRoutes??[]).filter(r=>r.toId===l.id).map(r=>r.item)).size,transferred:new Set((report?.transferEdges??[]).filter(r=>r.toId===l.id).map(r=>r.item)).size,counted:count(r=>r.countAdjustment!==0)};
+ });
+
  const filteredRows=(report?.rows??[]).filter((r:any)=>
   normalize(r.itemName+" "+r.item+" "+r.category+" "+r.locationName+" "+r.usageLocationName).includes(normalize(search))
  );
@@ -97,14 +112,15 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
 
  return (
   <>
-   <Heading title="Phân tích luồng hàng" detail="Báo cáo luồng hàng từ toàn bộ sổ phát sinh. Tồn đầu kỳ, biến động nghiệp vụ và tồn cuối kỳ đối soát chuẩn xác theo đơn vị.">
+   <Heading title="Phân tích luồng hàng theo khu" detail="Xem từng khu nhận hàng từ nhà cung cấp nào, nhận chuyển từ khu nào, đã xuất đi đâu và hiện còn những mặt hàng gì.">
     <div className="flex gap-2">
      <Button variant="outline" onClick={()=>fetchReport()} disabled={loading}>
       <RefreshCw size={16} className={loading?"animate-spin":""}/> Làm mới
      </Button>
      <Button variant="outline" onClick={exportCsv} disabled={loading||!!error||!report?.rows?.length}>
-      <Download size={16}/> Xuất CSV toàn bộ
+      <Download size={16}/> Xuất CSV tồn và biến động
      </Button>
+     <Button variant="outline" onClick={exportRoutesCsv} disabled={loading||!!error||!routes.length}><Download size={16}/> Xuất CSV tuyến hàng</Button>
     </div>
    </Heading>
 
@@ -119,8 +135,8 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
       <Input type="date" value={to} onChange={e=>setTo(e.target.value)}/>
      </div>
      <div>
-      <label className="text-xs font-semibold subtle mb-1 block">Khu thực tế</label>
-      <Pick label="Khu thực tế" value={location} onChange={setLocation} options={[{value:"all",label:"Tất cả khu thực tế"},...data.locations.map(l=>({value:l.id,label:l.name}))]}/>
+      <label className="text-xs font-semibold subtle mb-1 block">Khu nhận / đang giữ hàng</label>
+      <Pick label="Khu nhận / đang giữ hàng" value={location} onChange={setLocation} options={[{value:"all",label:"Tất cả khu"},...data.locations.map(l=>({value:l.id,label:l.name}))]}/>
      </div>
      <div>
       <label className="text-xs font-semibold subtle mb-1 block">Khu dự kiến</label>
@@ -135,49 +151,34 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
 
    {error&&<div className="bg-red-50 text-red-800 border border-red-200 rounded-xl p-4 mb-5" role="alert">{error}</div>}
 
-   {report&&report.summaryByUnit.length>0&&(
-    <section className="mb-6">
-     <h2 className="text-sm font-semibold mb-3">Tổng hợp luồng hàng theo đơn vị tính ({report.summaryByUnit.length} đơn vị)</h2>
-     <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-      {report.summaryByUnit.map((u:any)=>(
-       <div key={u.unit} className="panel p-4 space-y-2 border">
-        <div className="flex justify-between items-baseline border-b pb-2">
-         <span className="font-bold text-base text-foreground">Đơn vị: {u.unit}</span>
-         <span className="subtle text-xs">{u.itemCount} mặt hàng</span>
-        </div>
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs">
-         <span className="subtle">Đầu kỳ:</span>
-         <span className="text-right font-medium">{qty(u.opening)}</span>
-         <span className="subtle text-emerald-700">Nhập mua:</span>
-         <span className="text-right text-emerald-700 font-medium">+{qty(u.receipt)}</span>
-         <span className="subtle text-blue-700">Chuyển đến:</span>
-         <span className="text-right text-blue-700 font-medium">+{qty(u.transferIn)}</span>
-         <span className="subtle text-amber-700">Chuyển đi:</span>
-         <span className="text-right text-amber-700 font-medium">-{qty(u.transferOut)}</span>
-         <span className="subtle text-rose-700">Tiêu hao / xuất:</span>
-         <span className="text-right text-rose-700 font-medium">-{qty(u.consumption+u.loss+u.supplierReturn)}</span>
-         <span className="subtle">Kiểm kê / đảo:</span>
-         <span className="text-right font-medium">{u.countAdjustment+u.reversal>0?"+":""}{qty(u.countAdjustment+u.reversal)}</span>
-         <div className="col-span-2 border-t pt-1 flex justify-between font-bold text-sm">
-          <span>Cuối kỳ:</span>
-          <span>{qty(u.closing)} {u.unit}</span>
-         </div>
-        </div>
-       </div>
-      ))}
-     </div>
-    </section>
-   )}
+   {report&&<section className="mb-6">
+    <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+     <h2 className="text-sm font-semibold">Các khu nhận và giữ hàng</h2>
+     {location!=="all"&&<Button size="sm" variant="outline" onClick={()=>setLocation("all")}>Xem tất cả khu</Button>}
+    </div>
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+     {areas.map(a=><button key={a.id} type="button" onClick={()=>{setLocation(a.id);setTab("breakdown");}} className="panel p-4 text-left space-y-2 border hover:border-primary focus-visible:outline-2 focus-visible:outline-primary" aria-label={"Xem chi tiết khu "+a.name}>
+      <div className="flex justify-between gap-2"><b>{a.name}</b><span className="subtle text-xs">{a.items} mã có số liệu</span></div>
+      <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
+       <span>Nhập từ NCC</span><b className="text-right">{a.received} mã</b>
+       <span>Chuyển / trả đến</span><b className="text-right">{a.transferred} mã</b>
+       <span>Kiểm kê thay đổi</span><b className="text-right">{a.counted} mã</b>
+       <span>Còn cuối kỳ</span><b className="text-right">{a.available} mã</b>
+      </div>
+     </button>)}
+    </div>
+    <p className="subtle text-xs mt-2">Số trên thẻ là số mã hàng, không cộng số lượng của các mặt hàng hoặc đơn vị khác nhau. Số dư đầu từ file cũ nằm ở kiểm kê, không tính là nhập mua từ NCC.</p>
+   </section>}
 
-   <div className="flex gap-2 border-b mb-4">
+   <div className="flex flex-wrap gap-2 border-b mb-4">
     <button type="button" className={`pb-2 px-3 text-sm font-semibold border-b-2 ${tab==="breakdown"?"border-primary text-primary":"border-transparent text-muted-foreground"}`} onClick={()=>setTab("breakdown")}>
-     Bảng kê chi tiết ({report?.rows?.length??0})
+     Hàng theo khu ({report?.rows?.length??0})
     </button>
     <button type="button" className={`pb-2 px-3 text-sm font-semibold border-b-2 ${tab==="edges"?"border-primary text-primary":"border-transparent text-muted-foreground"}`} onClick={()=>setTab("edges")}>
-     Luồng chuyển khu ({report?.transferEdges?.length??0})
+     Hàng từ đâu đến đâu ({routes.length})
     </button>
     <button type="button" className={`pb-2 px-3 text-sm font-semibold border-b-2 ${tab==="daily"?"border-primary text-primary":"border-transparent text-muted-foreground"}`} onClick={()=>setTab("daily")}>
-     Biến động theo ngày ({report?.daily?.length??0})
+     Theo ngày và khu ({report?.daily?.length??0})
     </button>
    </div>
 
@@ -190,14 +191,19 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
       <Table>
        <TableHeader>
         <TableRow>
-         <TableHead className="pl-5 min-w-[200px]">Mặt hàng</TableHead>
-         <TableHead>Khu thực tế</TableHead>
+         <TableHead className="pl-5">Khu nhận / đang giữ</TableHead>
+         <TableHead className="min-w-[200px]">Mặt hàng</TableHead>
          <TableHead>Khu dự kiến</TableHead>
          <TableHead className="text-right">Đầu kỳ</TableHead>
          <TableHead className="text-right text-emerald-700">Nhập mua</TableHead>
          <TableHead className="text-right text-blue-700">Chuyển đến</TableHead>
          <TableHead className="text-right text-amber-700">Chuyển đi</TableHead>
+         <TableHead className="text-right">Trả về</TableHead>
+         <TableHead className="text-right">Trả đi</TableHead>
          <TableHead className="text-right text-rose-700">Tiêu hao</TableHead>
+         <TableHead className="text-right">Hỏng thuần</TableHead>
+         <TableHead className="text-right">Mất / hủy</TableHead>
+         <TableHead className="text-right">Trả NCC</TableHead>
          <TableHead className="text-right">Kiểm kê / Đảo</TableHead>
          <TableHead className="text-right font-bold">Biến động</TableHead>
          <TableHead className="text-right font-bold pr-5">Cuối kỳ</TableHead>
@@ -206,17 +212,22 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
        <TableBody>
         {visibleRows.map((r:any,idx:number)=>(
          <TableRow key={idx}>
-          <TableCell className="pl-5 table-cell-name">
+          <TableCell className="pl-5 text-sm font-medium">{r.locationName}</TableCell>
+          <TableCell className="table-cell-name">
            <b>{r.itemName}</b>
            <p className="subtle">{r.item} · {r.category} {r.condition==="damaged"?"· (Hỏng)":""}</p>
           </TableCell>
-          <TableCell className="text-sm font-medium">{r.locationName}</TableCell>
           <TableCell className="text-sm subtle">{r.usageLocationName}</TableCell>
           <TableCell className="text-right whitespace-nowrap">{qty(r.opening)} <small className="subtle">{r.unit}</small></TableCell>
           <TableCell className="text-right whitespace-nowrap text-emerald-700">{r.receipt>0?"+"+qty(r.receipt):"—"}</TableCell>
           <TableCell className="text-right whitespace-nowrap text-blue-700">{r.transferIn>0?"+"+qty(r.transferIn):"—"}</TableCell>
           <TableCell className="text-right whitespace-nowrap text-amber-700">{r.transferOut>0?"-"+qty(r.transferOut):"—"}</TableCell>
+          <TableCell className="text-right whitespace-nowrap">{r.returnIn>0?"+"+qty(r.returnIn):"—"}</TableCell>
+          <TableCell className="text-right whitespace-nowrap">{r.returnOut>0?"-"+qty(r.returnOut):"—"}</TableCell>
           <TableCell className="text-right whitespace-nowrap text-rose-700">{r.consumption>0?"-"+qty(r.consumption):"—"}</TableCell>
+          <TableCell className="text-right whitespace-nowrap">{r.damageNet!==0?(r.damageNet>0?"+":"")+qty(r.damageNet):"—"}</TableCell>
+          <TableCell className="text-right whitespace-nowrap">{r.loss>0?"-"+qty(r.loss):"—"}</TableCell>
+          <TableCell className="text-right whitespace-nowrap">{r.supplierReturn>0?"-"+qty(r.supplierReturn):"—"}</TableCell>
           <TableCell className="text-right whitespace-nowrap">{r.countAdjustment+r.reversal!==0?(r.countAdjustment+r.reversal>0?"+":"")+qty(r.countAdjustment+r.reversal):"—"}</TableCell>
           <TableCell className="text-right whitespace-nowrap font-semibold">{r.periodNet>0?"+":""}{qty(r.periodNet)}</TableCell>
           <TableCell className="text-right whitespace-nowrap font-bold pr-5">{qty(r.closing)} <small className="subtle">{r.unit}</small></TableCell>
@@ -237,30 +248,37 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
    )}
 
    {tab==="edges"&&(
+    <div className="space-y-3">
+    <p className="subtle text-sm">Theo dõi nhập từ NCC, chuyển / trả giữa các khu và hàng rời khu do tiêu hao, mất/hủy hoặc trả NCC. Phiếu đã đảo được loại khỏi danh sách tuyến còn hiệu lực.</p>
     <div className="panel p-0 overflow-x-auto">
      <Table>
       <TableHeader>
        <TableRow>
-        <TableHead className="pl-5">Từ khu</TableHead>
-        <TableHead>Đến khu</TableHead>
+        <TableHead className="pl-5">Loại</TableHead>
+        <TableHead>Từ NCC / khu</TableHead>
+        <TableHead>Nơi nhận / xử lý</TableHead>
         <TableHead>Mặt hàng</TableHead>
-        <TableHead className="text-right">Số lượng chuyển</TableHead>
-        <TableHead className="text-right pr-5">Số lượt phiếu</TableHead>
+        <TableHead className="text-right">Số lượng</TableHead>
+        <TableHead className="text-right">Số phiếu</TableHead>
+        <TableHead className="text-right pr-5">Gần nhất</TableHead>
        </TableRow>
       </TableHeader>
       <TableBody>
-       {report?.transferEdges?.map((e:any,idx:number)=>(
+       {routes.map((e,idx)=>(
         <TableRow key={idx}>
-         <TableCell className="pl-5 font-medium">{e.fromName}</TableCell>
+         <TableCell className="pl-5">{e.type}</TableCell>
+         <TableCell>{e.from}</TableCell>
          <TableCell className="font-medium">{e.toName}</TableCell>
          <TableCell><b>{e.itemName}</b> <span className="subtle text-xs">({e.item})</span></TableCell>
          <TableCell className="text-right font-bold">{qty(e.quantity)} {e.unit}</TableCell>
-         <TableCell className="text-right pr-5">{e.txCount} lượt</TableCell>
+         <TableCell className="text-right">{e.txCount}</TableCell>
+         <TableCell className="text-right pr-5">{dt(e.lastDate)}</TableCell>
         </TableRow>
        ))}
       </TableBody>
      </Table>
-     {!report?.transferEdges?.length&&<Empty title="Chưa có luân chuyển nội bộ trong kỳ" detail="Chuyển khu hoặc trả hàng giữa các vị trí sẽ hiển thị tại đây."/>}
+     {!routes.length&&<Empty title="Chưa có tuyến nhập hoặc xuất trong kỳ" detail="Số dư đầu từ file cũ là mốc kiểm kê, không phải phiếu nhập từ nhà cung cấp."/>}
+    </div>
     </div>
    )}
 
@@ -270,23 +288,37 @@ export function AnalyticsView({data,go}:{data:State;go?:(t:string)=>void}){
       <TableHeader>
        <TableRow>
         <TableHead className="pl-5">Ngày</TableHead>
-        <TableHead>Đơn vị</TableHead>
+        <TableHead>Khu</TableHead>
+        <TableHead>Mặt hàng</TableHead>
         <TableHead className="text-right text-emerald-700">Nhập mua</TableHead>
         <TableHead className="text-right text-blue-700">Chuyển đến</TableHead>
         <TableHead className="text-right text-amber-700">Chuyển đi</TableHead>
+        <TableHead className="text-right">Trả về</TableHead>
+        <TableHead className="text-right">Trả đi</TableHead>
+        <TableHead className="text-right">Kiểm kê</TableHead>
         <TableHead className="text-right text-rose-700">Tiêu hao</TableHead>
+        <TableHead className="text-right">Mất / hủy</TableHead>
+        <TableHead className="text-right">Trả NCC</TableHead>
+        <TableHead className="text-right">Đảo phiếu</TableHead>
         <TableHead className="text-right pr-5">Thay đổi thuần</TableHead>
        </TableRow>
       </TableHeader>
       <TableBody>
-       {report?.daily?.map((d:any,idx:number)=>(
+       {report?.daily?.map((d,idx)=>(
         <TableRow key={idx}>
          <TableCell className="pl-5 font-medium">{dt(d.date)}</TableCell>
-         <TableCell>{d.unit}</TableCell>
+         <TableCell>{d.locationName}</TableCell>
+         <TableCell>{d.itemName} <span className="subtle text-xs">({d.item})</span></TableCell>
          <TableCell className="text-right text-emerald-700">{d.receipt>0?"+"+qty(d.receipt):"—"}</TableCell>
          <TableCell className="text-right text-blue-700">{d.transferIn>0?"+"+qty(d.transferIn):"—"}</TableCell>
          <TableCell className="text-right text-amber-700">{d.transferOut>0?"-"+qty(d.transferOut):"—"}</TableCell>
+         <TableCell className="text-right">{d.returnIn>0?"+"+qty(d.returnIn):"—"}</TableCell>
+         <TableCell className="text-right">{d.returnOut>0?"-"+qty(d.returnOut):"—"}</TableCell>
+         <TableCell className="text-right">{d.countAdjustment!==0?(d.countAdjustment>0?"+":"")+qty(d.countAdjustment):"—"}</TableCell>
          <TableCell className="text-right text-rose-700">{d.consumption>0?"-"+qty(d.consumption):"—"}</TableCell>
+         <TableCell className="text-right">{d.loss>0?"-"+qty(d.loss):"—"}</TableCell>
+         <TableCell className="text-right">{d.supplierReturn>0?"-"+qty(d.supplierReturn):"—"}</TableCell>
+         <TableCell className="text-right">{d.reversal!==0?(d.reversal>0?"+":"")+qty(d.reversal):"—"}</TableCell>
          <TableCell className="text-right font-bold pr-5">{d.periodNet>0?"+":""}{qty(d.periodNet)} {d.unit}</TableCell>
         </TableRow>
        ))}

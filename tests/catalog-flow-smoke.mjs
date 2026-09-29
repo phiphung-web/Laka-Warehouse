@@ -334,7 +334,6 @@ passed++;
 // 14. Stress test: Flow report handles queries correctly over transactions
 const fullFlow = await getFlow({ from: "2026-01-01", to: today() });
 assert.equal(fullFlow.status, 200);
-assert.ok(fullFlow.body.summaryByUnit.length >= 1);
 assert.ok(fullFlow.body.rows.length >= 1);
 passed++;
 
@@ -352,11 +351,35 @@ const consumed=await postTx({type:"CONSUME",from:"BUONG_PHONG",lines:[{item:mixe
 await postTx({type:"REVERSAL",reversalOf:consumed.id,lines:[],note:"QA reversal"});
 const mixedReport=await getFlow({item:mixedCode,from:today(),to:today()});
 assert.equal(mixedReport.status,200,JSON.stringify(mixedReport));
-const summary=mixedReport.body.summaryByUnit[0];
-assert.equal(summary.unit,"Kg");assert.equal(summary.opening,20);assert.equal(summary.closing,20);
-assert.equal(summary.transferIn,5);assert.equal(summary.transferOut,5);assert.equal(summary.receipt,0);
-assert.equal(summary.damageNet,0);assert.equal(summary.consumption,1);assert.equal(summary.reversal,1);
+assert.ok(mixedReport.body.rows.every(row=>row.unit==="Kg"));
+const sumMixed=field=>mixedReport.body.rows.reduce((total,row)=>total+row[field],0);
+assert.equal(sumMixed("opening"),20);assert.equal(sumMixed("closing"),20);
+assert.equal(sumMixed("transferIn"),5);assert.equal(sumMixed("transferOut"),5);assert.equal(sumMixed("receipt"),0);
+assert.equal(sumMixed("damageNet"),0);assert.equal(sumMixed("consumption"),1);assert.equal(sumMixed("reversal"),1);
 for(const row of mixedReport.body.rows)assert.equal(row.opening+row.periodNet,row.closing);
+passed++;
+// A receiving area must show both supplier deliveries and internal transfers without mixing item units.
+const directReceipt=await postTx({type:"RECEIPT",to:"CAFE",partner:"NCC giao thẳng Cafe",lines:[{item:mixedCode,quantity:3,price:1000}]});
+const cafeFlow=await getFlow({item:mixedCode,location:"CAFE",from:today(),to:today()});
+assert.equal(cafeFlow.status,200,JSON.stringify(cafeFlow));
+assert.ok(cafeFlow.body.rows.every(row=>row.location==="CAFE"));
+assert.equal(cafeFlow.body.receiptRoutes.length,1);
+assert.deepEqual({from:cafeFlow.body.receiptRoutes[0].partner,to:cafeFlow.body.receiptRoutes[0].toId,quantity:cafeFlow.body.receiptRoutes[0].quantity,unit:cafeFlow.body.receiptRoutes[0].unit},{from:"NCC giao thẳng Cafe",to:"CAFE",quantity:3,unit:"Kg"});
+assert.ok(cafeFlow.body.transferEdges.some(edge=>edge.fromId==="BUONG_PHONG"&&edge.toId==="CAFE"&&edge.item===mixedCode&&edge.quantity===5));
+assert.ok(cafeFlow.body.daily.some(day=>day.location==="CAFE"&&day.item===mixedCode&&day.receipt===3&&day.transferIn===5));
+assert.equal(cafeFlow.body.rows[0].receipt,3);
+assert.equal(cafeFlow.body.rows[0].transferIn,5);
+await postTx({type:"REVERSAL",reversalOf:directReceipt.id,lines:[],note:"Đảo nhập giao thẳng thử nghiệm"});
+const afterReversal=await getFlow({item:mixedCode,location:"CAFE",from:today(),to:today()});
+assert.equal(afterReversal.body.receiptRoutes.length,0,"A reversed supplier delivery must not remain an active route");
+assert.equal(afterReversal.body.rows[0].receipt,3,"Gross ledger receipt remains auditable");
+assert.equal(afterReversal.body.rows[0].closing,5,"Reversal restores the receiving area's stock");
+await postTx({type:"CONSUME",from:"BUONG_PHONG",note:"Đã sử dụng tại buồng phòng",lines:[{item:mixedCode,quantity:1}]});
+await postTx({type:"SUPPLIER_RETURN",from:"BUONG_PHONG",partner:"NCC nhận hàng trả",note:"Trả hàng cho NCC",lines:[{item:mixedCode,quantity:1}]});
+const outboundFlow=await getFlow({item:mixedCode,location:"BUONG_PHONG",from:today(),to:today()});
+assert.ok(outboundFlow.body.outboundRoutes.some(route=>route.type==="CONSUME"&&route.fromId==="BUONG_PHONG"&&route.quantity===1));
+assert.ok(outboundFlow.body.outboundRoutes.some(route=>route.type==="SUPPLIER_RETURN"&&route.partner==="NCC nhận hàng trả"&&route.quantity===1));
+assert.equal(outboundFlow.body.outboundRoutes.find(route=>route.type==="CONSUME").quantity,1,"Reversed consumption must not count as an active outbound route");
 passed++;
 // Opening-only entries remain visible, independent of current-period movements.
 const openingReport=await getFlow({item:mixedCode,from:"2026-01-02",to:"2026-01-02"});

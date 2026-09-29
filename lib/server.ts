@@ -264,7 +264,7 @@ export async function stockFlowReport(params:URLSearchParams){
  WHERE ${whereClauses.join(" AND ")}
  GROUP BY l.item, l.location, l.condition
  HAVING opening <> 0 OR in_range_count > 0 OR closing <> 0
- ORDER BY i.name ASC, loc.name ASC, l.condition ASC`;
+ ORDER BY loc.name ASC, i.name ASC, l.condition ASC`;
  const selectBindings=[from,from,to,from,to,from,to,from,to,from,to,from,to,from,to,from,to,from,to,from,to,from,to,from,to,from,to,to,from,to];
  const rawRows=(await d.prepare(sql).bind(...selectBindings,...whereBindings).all<any>()).results;
   const rows=rawRows.map(r=>({
@@ -279,31 +279,8 @@ export async function stockFlowReport(params:URLSearchParams){
    countAdjustment:r.count_adjustment/1000,reversal:r.reversal/1000,
    periodNet:r.period_net/1000,closing:r.closing/1000
   }));
-  const unitMap=new Map<string,any>();
-  for(const r of rows){
-   if(!unitMap.has(r.unit)){
-    unitMap.set(r.unit,{unit:r.unit,opening:0,receipt:0,transferIn:0,transferOut:0,returnIn:0,returnOut:0,consumption:0,damageIn:0,damageOut:0,damageNet:0,loss:0,supplierReturn:0,countAdjustment:0,reversal:0,periodNet:0,closing:0,itemCount:new Set<string>()});
-   }
-   const u=unitMap.get(r.unit);
-   u.opening+=r.opening;u.receipt+=r.receipt;u.transferIn+=r.transferIn;u.transferOut+=r.transferOut;
-   u.returnIn+=r.returnIn;u.returnOut+=r.returnOut;u.consumption+=r.consumption;u.damageIn+=r.damageIn;
-   u.damageOut+=r.damageOut;u.damageNet+=r.damageNet;u.loss+=r.loss;u.supplierReturn+=r.supplierReturn;
-   u.countAdjustment+=r.countAdjustment;u.reversal+=r.reversal;u.periodNet+=r.periodNet;u.closing+=r.closing;
-   u.itemCount.add(r.item);
-  }
-  const summaryByUnit=Array.from(unitMap.values()).map(u=>({
-   ...u,itemCount:u.itemCount.size,
-   opening:Math.round(u.opening*1000)/1000,receipt:Math.round(u.receipt*1000)/1000,
-   transferIn:Math.round(u.transferIn*1000)/1000,transferOut:Math.round(u.transferOut*1000)/1000,
-   returnIn:Math.round(u.returnIn*1000)/1000,returnOut:Math.round(u.returnOut*1000)/1000,
-   consumption:Math.round(u.consumption*1000)/1000,damageIn:Math.round(u.damageIn*1000)/1000,
-   damageOut:Math.round(u.damageOut*1000)/1000,damageNet:Math.round(u.damageNet*1000)/1000,
-   loss:Math.round(u.loss*1000)/1000,supplierReturn:Math.round(u.supplierReturn*1000)/1000,
-   countAdjustment:Math.round(u.countAdjustment*1000)/1000,reversal:Math.round(u.reversal*1000)/1000,
-   periodNet:Math.round(u.periodNet*1000)/1000,closing:Math.round(u.closing*1000)/1000
-  }));
-  const edgeWhere:string[]=["t.date >= ?","t.date <= ?","t.type IN ('TRANSFER','RETURN')","l.quantity > 0"];
-  const edgeBindings:any[]=[from,to];
+  const edgeWhere:string[]=["t.date >= ?","t.date <= ?","t.type IN ('TRANSFER','RETURN')","l.quantity > 0","NOT EXISTS (SELECT 1 FROM transactions rev WHERE rev.reversal_of = t.id AND rev.date <= ?)"];
+  const edgeBindings:any[]=[from,to,to];
   if(category&&category!=="all"){edgeWhere.push("i.category = ?");edgeBindings.push(category);}
   if(location&&location!=="all"){edgeWhere.push("(t.from_location = ? OR t.to_location = ?)");edgeBindings.push(location,location);}
   if(item&&item!=="all"){edgeWhere.push("l.item = ?");edgeBindings.push(item);}
@@ -311,9 +288,33 @@ export async function stockFlowReport(params:URLSearchParams){
    if(usage==="unassigned")edgeWhere.push("i.usage_location IS NULL");
    else{edgeWhere.push("i.usage_location = ?");edgeBindings.push(usage);}
   }
-  const edgeSql=`SELECT t.from_location as from_id,COALESCE(fl.name,t.from_location,'Bên ngoài') as from_name,t.to_location as to_id,COALESCE(tl.name,t.to_location,'Bên ngoài') as to_name,l.item,i.name as item_name,i.unit,COUNT(DISTINCT t.id) as tx_count,SUM(l.quantity) as quantity FROM ledger l JOIN transactions t ON t.id=l.tx JOIN items i ON i.code=l.item LEFT JOIN locations fl ON fl.id=t.from_location LEFT JOIN locations tl ON tl.id=t.to_location WHERE ${edgeWhere.join(" AND ")} GROUP BY t.from_location,t.to_location,l.item ORDER BY quantity DESC`;
+  const edgeSql=`SELECT t.type,t.from_location as from_id,COALESCE(fl.name,t.from_location,'Bên ngoài') as from_name,t.to_location as to_id,COALESCE(tl.name,t.to_location,'Bên ngoài') as to_name,l.item,i.name as item_name,i.unit,COUNT(DISTINCT t.id) as tx_count,SUM(l.quantity) as quantity,MIN(t.date) as first_date,MAX(t.date) as last_date FROM ledger l JOIN transactions t ON t.id=l.tx JOIN items i ON i.code=l.item LEFT JOIN locations fl ON fl.id=t.from_location LEFT JOIN locations tl ON tl.id=t.to_location WHERE ${edgeWhere.join(" AND ")} GROUP BY t.type,t.from_location,t.to_location,l.item ORDER BY last_date DESC,to_name,item_name`;
   const rawEdges=(await d.prepare(edgeSql).bind(...edgeBindings).all<any>()).results;
-  const transferEdges=rawEdges.map(e=>({fromId:e.from_id,fromName:e.from_name,toId:e.to_id,toName:e.to_name,item:e.item,itemName:e.item_name,unit:e.unit,txCount:e.tx_count,quantity:e.quantity/1000}));
+  const transferEdges=rawEdges.map(e=>({type:e.type,fromId:e.from_id,fromName:e.from_name,toId:e.to_id,toName:e.to_name,item:e.item,itemName:e.item_name,unit:e.unit,txCount:e.tx_count,quantity:e.quantity/1000,firstDate:e.first_date,lastDate:e.last_date}));
+  const receiptWhere:string[]=["t.date >= ?","t.date <= ?","t.type = 'RECEIPT'","l.quantity > 0","NOT EXISTS (SELECT 1 FROM transactions rev WHERE rev.reversal_of = t.id AND rev.date <= ?)"];
+  const receiptBindings:any[]=[from,to,to];
+  if(category&&category!=="all"){receiptWhere.push("i.category = ?");receiptBindings.push(category);}
+  if(location&&location!=="all"){receiptWhere.push("t.to_location = ?");receiptBindings.push(location);}
+  if(item&&item!=="all"){receiptWhere.push("l.item = ?");receiptBindings.push(item);}
+  if(usage&&usage!=="all"){
+   if(usage==="unassigned")receiptWhere.push("i.usage_location IS NULL");
+   else{receiptWhere.push("i.usage_location = ?");receiptBindings.push(usage);}
+  }
+  const receiptSql=`SELECT t.partner,t.to_location as to_id,loc.name as to_name,l.item,i.name as item_name,i.unit,COUNT(DISTINCT t.id) as tx_count,SUM(l.quantity) as quantity,MIN(t.date) as first_date,MAX(t.date) as last_date FROM ledger l JOIN transactions t ON t.id=l.tx JOIN items i ON i.code=l.item JOIN locations loc ON loc.id=t.to_location WHERE ${receiptWhere.join(" AND ")} GROUP BY t.partner,t.to_location,l.item ORDER BY last_date DESC,to_name,item_name`;
+  const rawReceipts=(await d.prepare(receiptSql).bind(...receiptBindings).all<any>()).results;
+  const receiptRoutes=rawReceipts.map(r=>({partner:r.partner||"Chưa rõ nhà cung cấp",toId:r.to_id,toName:r.to_name,item:r.item,itemName:r.item_name,unit:r.unit,txCount:r.tx_count,quantity:r.quantity/1000,firstDate:r.first_date,lastDate:r.last_date}));
+  const outboundWhere:string[]=["t.date >= ?","t.date <= ?","t.type IN ('CONSUME','LOSS','SUPPLIER_RETURN')","l.quantity < 0","NOT EXISTS (SELECT 1 FROM transactions rev WHERE rev.reversal_of = t.id AND rev.date <= ?)"];
+  const outboundBindings:any[]=[from,to,to];
+  if(category&&category!=="all"){outboundWhere.push("i.category = ?");outboundBindings.push(category);}
+  if(location&&location!=="all"){outboundWhere.push("t.from_location = ?");outboundBindings.push(location);}
+  if(item&&item!=="all"){outboundWhere.push("l.item = ?");outboundBindings.push(item);}
+  if(usage&&usage!=="all"){
+   if(usage==="unassigned")outboundWhere.push("i.usage_location IS NULL");
+   else{outboundWhere.push("i.usage_location = ?");outboundBindings.push(usage);}
+  }
+  const outboundSql=`SELECT t.type,t.partner,t.from_location as from_id,loc.name as from_name,l.item,i.name as item_name,i.unit,COUNT(DISTINCT t.id) as tx_count,SUM(-l.quantity) as quantity,MIN(t.date) as first_date,MAX(t.date) as last_date FROM ledger l JOIN transactions t ON t.id=l.tx JOIN items i ON i.code=l.item JOIN locations loc ON loc.id=t.from_location WHERE ${outboundWhere.join(" AND ")} GROUP BY t.type,t.partner,t.from_location,l.item ORDER BY last_date DESC,from_name,item_name`;
+  const rawOutbound=(await d.prepare(outboundSql).bind(...outboundBindings).all<any>()).results;
+  const outboundRoutes=rawOutbound.map(r=>({type:r.type,partner:r.partner||"",fromId:r.from_id,fromName:r.from_name,item:r.item,itemName:r.item_name,unit:r.unit,txCount:r.tx_count,quantity:r.quantity/1000,firstDate:r.first_date,lastDate:r.last_date}));
   const dailyWhere=["t.date >= ?","t.date <= ?"];
   const dailyBindings=[from,to];
   if(category&&category!=="all"){dailyWhere.push("i.category = ?");dailyBindings.push(category);}
@@ -323,10 +324,10 @@ export async function stockFlowReport(params:URLSearchParams){
    if(usage==="unassigned")dailyWhere.push("i.usage_location IS NULL");
    else{dailyWhere.push("i.usage_location = ?");dailyBindings.push(usage);}
   }
-  const dailySql=`SELECT t.date,i.unit,SUM(CASE WHEN t.type = 'RECEIPT' THEN l.quantity ELSE 0 END) as receipt,SUM(CASE WHEN t.type = 'TRANSFER' AND l.quantity > 0 THEN l.quantity ELSE 0 END) as transfer_in,SUM(CASE WHEN t.type = 'TRANSFER' AND l.quantity < 0 THEN -l.quantity ELSE 0 END) as transfer_out,SUM(CASE WHEN t.type = 'RETURN' AND l.quantity > 0 THEN l.quantity ELSE 0 END) as return_in,SUM(CASE WHEN t.type = 'RETURN' AND l.quantity < 0 THEN -l.quantity ELSE 0 END) as return_out,SUM(CASE WHEN t.type = 'CONSUME' THEN -l.quantity ELSE 0 END) as consumption,SUM(CASE WHEN t.type = 'DAMAGE' AND l.quantity > 0 THEN l.quantity ELSE 0 END) as damage_in,SUM(CASE WHEN t.type = 'DAMAGE' AND l.quantity < 0 THEN -l.quantity ELSE 0 END) as damage_out,SUM(CASE WHEN t.type = 'LOSS' THEN -l.quantity ELSE 0 END) as loss,SUM(CASE WHEN t.type = 'SUPPLIER_RETURN' THEN -l.quantity ELSE 0 END) as supplier_return,SUM(CASE WHEN t.type = 'COUNT' THEN l.quantity ELSE 0 END) as count_adjustment,SUM(CASE WHEN t.type = 'REVERSAL' THEN l.quantity ELSE 0 END) as reversal,SUM(l.quantity) as period_net FROM ledger l JOIN transactions t ON t.id=l.tx JOIN items i ON i.code=l.item WHERE ${dailyWhere.join(" AND ")} GROUP BY t.date,i.unit ORDER BY t.date ASC,i.unit ASC`;
+  const dailySql=`SELECT t.date,l.location,loc.name as location_name,l.item,i.name as item_name,i.unit,SUM(CASE WHEN t.type = 'RECEIPT' THEN l.quantity ELSE 0 END) as receipt,SUM(CASE WHEN t.type = 'TRANSFER' AND l.quantity > 0 THEN l.quantity ELSE 0 END) as transfer_in,SUM(CASE WHEN t.type = 'TRANSFER' AND l.quantity < 0 THEN -l.quantity ELSE 0 END) as transfer_out,SUM(CASE WHEN t.type = 'RETURN' AND l.quantity > 0 THEN l.quantity ELSE 0 END) as return_in,SUM(CASE WHEN t.type = 'RETURN' AND l.quantity < 0 THEN -l.quantity ELSE 0 END) as return_out,SUM(CASE WHEN t.type = 'CONSUME' THEN -l.quantity ELSE 0 END) as consumption,SUM(CASE WHEN t.type = 'DAMAGE' AND l.quantity > 0 THEN l.quantity ELSE 0 END) as damage_in,SUM(CASE WHEN t.type = 'DAMAGE' AND l.quantity < 0 THEN -l.quantity ELSE 0 END) as damage_out,SUM(CASE WHEN t.type = 'LOSS' THEN -l.quantity ELSE 0 END) as loss,SUM(CASE WHEN t.type = 'SUPPLIER_RETURN' THEN -l.quantity ELSE 0 END) as supplier_return,SUM(CASE WHEN t.type = 'COUNT' THEN l.quantity ELSE 0 END) as count_adjustment,SUM(CASE WHEN t.type = 'REVERSAL' THEN l.quantity ELSE 0 END) as reversal,SUM(l.quantity) as period_net FROM ledger l JOIN transactions t ON t.id=l.tx JOIN items i ON i.code=l.item JOIN locations loc ON loc.id=l.location WHERE ${dailyWhere.join(" AND ")} GROUP BY t.date,l.location,l.item ORDER BY t.date DESC,loc.name,i.name`;
   const rawDaily=(await d.prepare(dailySql).bind(...dailyBindings).all<any>()).results;
-  const daily=rawDaily.map(d=>({date:d.date,unit:d.unit,receipt:d.receipt/1000,transferIn:d.transfer_in/1000,transferOut:d.transfer_out/1000,returnIn:d.return_in/1000,returnOut:d.return_out/1000,consumption:d.consumption/1000,damageNet:(d.damage_in-d.damage_out)/1000,loss:d.loss/1000,supplierReturn:d.supplier_return/1000,countAdjustment:d.count_adjustment/1000,reversal:d.reversal/1000,periodNet:d.period_net/1000}));
-  return {filters,summaryByUnit,rows,transferEdges,daily,rowCount:rows.length};
+  const daily=rawDaily.map(d=>({date:d.date,location:d.location,locationName:d.location_name,item:d.item,itemName:d.item_name,unit:d.unit,receipt:d.receipt/1000,transferIn:d.transfer_in/1000,transferOut:d.transfer_out/1000,returnIn:d.return_in/1000,returnOut:d.return_out/1000,consumption:d.consumption/1000,damageNet:(d.damage_in-d.damage_out)/1000,loss:d.loss/1000,supplierReturn:d.supplier_return/1000,countAdjustment:d.count_adjustment/1000,reversal:d.reversal/1000,periodNet:d.period_net/1000}));
+  return {filters,rows,receiptRoutes,transferEdges,outboundRoutes,daily,rowCount:rows.length};
  }
 export async function backup(){
  const source=readSource();
