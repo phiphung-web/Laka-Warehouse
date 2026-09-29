@@ -49,6 +49,7 @@ export function CatalogView({data,execute,busy}:{data:State;execute:any;busy:boo
  }
  async function save(){
   try{
+   if(edit.isNew&&edit.manualCode&&!edit.code.trim())throw new Error("Nhập mã hàng hoặc chọn tự cấp mã.");
    const payload:any={code:edit.manualCode||!edit.isNew?edit.code.trim():"",name:edit.name.trim(),unit:edit.unit.trim()||"Cái",category:edit.category.trim()||"Chung",kind:edit.kind||"unclassified",usage_location:edit.usage_location||null,note:edit.note||"",active:edit.active,pack_unit:edit.pack_unit||"",packSize:Number(edit.packSize)||1};
    if(edit.isNew&&edit.initial_quantity!==undefined&&edit.initial_quantity!==null&&String(edit.initial_quantity).trim()!==""){
     payload.initial_quantity=edit.initial_quantity;payload.initial_location=edit.initial_location||"KHO_TONG";payload.initial_date=edit.initial_date||today();payload.initial_lot=edit.initial_lot||"";payload.initial_expiry=edit.initial_expiry||"";

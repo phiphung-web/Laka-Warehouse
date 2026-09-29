@@ -50,6 +50,6 @@ export function resolveDailyArea(rawArea: string): string | null {
 export function canonicalJson(obj: any): string {
  if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
  if (Array.isArray(obj)) return "[" + obj.map(canonicalJson).join(",") + "]";
- const keys = Object.keys(obj).sort();
+ const keys = Object.keys(obj).filter(k=>obj[k]!==undefined).sort();
  return "{" + keys.map(k => JSON.stringify(k) + ":" + canonicalJson(obj[k])).join(",") + "}";
 }

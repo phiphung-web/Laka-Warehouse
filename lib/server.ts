@@ -3,7 +3,7 @@ import {readSource} from "./source";
 import { getWarehouseUser } from "./auth-server";
 import {COMMERCE_ACTIONS,COMMERCE_TABLES,commerceState,mutateCommerce} from "./commerce-server";
 import { prepareTransaction, scaled, KINDS, today, validDate, type TxInput, type Item, type Location, type Balance, sanitizeAreaPrefix, KIND_PREFIX_MAP } from "./inventory";
-import { canonicalJson } from "./auto-code";
+import { canonicalJson, allocateNextItemCode as nextCode } from "./auto-code";
 export function db(){return getDatabase();}
 const initialLocations=[["KHO_TONG","Kho tổng"],["BUONG_PHONG","Buồng phòng"],["HOMESTAY","Homestay / Lễ tân"],["BEP","Bếp"],["NHA_HANG","Nhà hàng bên ngoài"],["CAFE","Cafe"],["DUNG_CHUNG","Dùng chung"]];
 export async function identity(){
@@ -71,16 +71,7 @@ export async function postTransaction(raw:TxInput,user:any){
 }
 export async function allocateNextItemCode(d:SQLiteStore,prefix:string):Promise<string>{
  const existing=(await d.prepare("SELECT code FROM items WHERE code LIKE ?").bind(`${prefix}%`).all<{code:string}>()).results;
- const usedNums=new Set<number>();
- const escapedPrefix=prefix.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");
- const re=new RegExp(`^${escapedPrefix}(\\d+)$`);
- for(const r of existing){
-  const m=r.code.match(re);
-  if(m)usedNums.add(parseInt(m[1],10));
- }
- let seq=1;
- while(usedNums.has(seq))seq++;
- return `${prefix}${String(seq).padStart(4,"0")}`;
+ return nextCode(existing.map(r=>r.code),prefix);
 }
 export async function mutate(body:any,user:any){
  const d=db(),now=new Date().toISOString(),id=uuid(body.id),action=body.action;
@@ -157,6 +148,8 @@ export async function mutate(body:any,user:any){
   const hasInitialStock=isCreate&&p.initial_quantity!==undefined&&p.initial_quantity!==null&&String(p.initial_quantity).trim()!=="";
   let initialQty=0,initialLocation="KHO_TONG",initialDate=today(),initialLot="",initialExpiry="",initialCondition="usable";
   if(hasInitialStock){
+   if(typeof p.initial_quantity!=="number"&&(typeof p.initial_quantity!=="string"||!/^\d+(?:\.\d+)?$/.test(p.initial_quantity.trim())))throw new Error("Số lượng ban đầu không hợp lệ.");
+   if(!active)throw new Error("Bật trạng thái đang sử dụng trước khi ghi số dư ban đầu.");
    const rawNum=Number(p.initial_quantity);
    if(Number.isNaN(rawNum))throw new Error("Số lượng ban đầu đã xác nhận không hợp lệ.");
    initialQty=scaled(rawNum,true);

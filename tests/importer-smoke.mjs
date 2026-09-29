@@ -158,6 +158,47 @@ assert.equal(dryUnitConflict.counts.unresolved, 1);
 assert.match(dryUnitConflict.unresolvedRows[0].reason, /Coded row conflict/);
 passed++;
 
+// Strict inputs and provenance protect reruns and existing operational stock.
+for (const bad of ["5abc", "1,5", "Infinity", "", -1, 0]) {
+ const input={...syntheticSource,sourceId:"invalid-quantity",history:[{source:"NhapKho_Cafe",row:2,values:[1,"","BAD_Q","Bad quantity","Cái",bad]}]};
+ fs.writeFileSync(sourceFile,JSON.stringify(input));
+ assert.equal(runImporter({sourceFile,dbFile}).counts.unresolved,1);
+ assert.throws(()=>runImporter({apply:true,locationMode:"by-sheet",sourceFile,dbFile}),/unresolved/);
+}
+passed++;
+const appended=structuredClone(syntheticSource);
+appended.history.push({source:"NhapKho_Homestay",row:99,values:[1,"","HS_001","Dầu gội mini","Chai",1]});
+fs.writeFileSync(sourceFile,JSON.stringify(appended));
+assert.equal(runImporter({sourceFile,dbFile}).counts.conflicts,1,"New rows cannot bypass existing ledger using older provenance");
+assert.throws(()=>runImporter({apply:true,locationMode:"by-sheet",sourceFile,dbFile}),/conflict/);
+passed++;
+const changedCarry=structuredClone(syntheticSource);
+changedCarry.history[4].values[2]="Cafe";
+fs.writeFileSync(sourceFile,JSON.stringify(changedCarry));
+assert.equal(runImporter({sourceFile,dbFile}).counts.conflicts,2,"Carried usage change must invalidate both daily rows");
+fs.writeFileSync(sourceFile,JSON.stringify(syntheticSource));
+assert.ok(runImporter({sourceFile,dbFile,locationMode:"central"}).counts.conflicts>0,"Changing receiving mode cannot silently replay");
+passed++;
+const duplicate=structuredClone(syntheticSource);
+duplicate.history.push(duplicate.history[0]);
+fs.writeFileSync(sourceFile,JSON.stringify(duplicate));
+assert.equal(runImporter({sourceFile,dbFile}).counts.conflicts,1);
+passed++;
+fs.writeFileSync(sourceFile,JSON.stringify(syntheticSource));
+assert.equal(runImporter({apply:true,sourceFile,dbFile,locationMode:"by-sheet"}).counts.valid,0);
+const afterReplay=new DatabaseSync(dbFile,{readOnly:true});
+assert.equal(afterReplay.prepare("SELECT SUM(quantity) n FROM ledger WHERE item='HS_001'").get().n,150000);
+assert.equal(afterReplay.prepare("SELECT COUNT(*) n FROM import_provenance").get().n,6);
+afterReplay.close();passed++;
+// Physical receiving warehouse and intended use are independent.
+const central={sourceId:"central-fixture",history:[{source:"NhapKho_Cafe",row:2,values:[1,"","CENTRAL_CF","Central cafe item","Cái",2]}]};
+fs.writeFileSync(sourceFile,JSON.stringify(central));
+runImporter({apply:true,sourceFile,dbFile,locationMode:"central"});
+const centralDb=new DatabaseSync(dbFile,{readOnly:true});
+assert.equal(centralDb.prepare("SELECT usage_location FROM items WHERE code='CENTRAL_CF'").get().usage_location,"CAFE");
+assert.equal(centralDb.prepare("SELECT location FROM balances WHERE item='CENTRAL_CF'").get().location,"KHO_TONG");
+centralDb.close();passed++;
+
 // Cleanup
 try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
 

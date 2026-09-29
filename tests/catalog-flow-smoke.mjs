@@ -338,4 +338,38 @@ assert.ok(fullFlow.body.summaryByUnit.length >= 1);
 assert.ok(fullFlow.body.rows.length >= 1);
 passed++;
 
+async function postTx(payload){
+ const current=await state(), id=crypto.randomUUID();
+ const out=await send({id,action:"transaction",payload:{id,revision:current.revision,date:today(),person:"QA",...payload}});
+ assert.equal(out.status,200,JSON.stringify(out));return out.body;
+}
+const mixed=await state(), mixedCode="FLOW_MIXED";
+r=await send({id:crypto.randomUUID(),action:"item",revision:mixed.revision,create:true,payload:{code:mixedCode,name:"Mixed flow fixture",unit:"Kg",kind:"consumable",usage_location:"BUONG_PHONG",initial_quantity:20,initial_location:"BUONG_PHONG",initial_date:"2026-01-01"}});
+assert.equal(r.status,200,JSON.stringify(r));
+await postTx({type:"TRANSFER",from:"BUONG_PHONG",to:"CAFE",lines:[{item:mixedCode,quantity:5}]});
+await postTx({type:"DAMAGE",from:"BUONG_PHONG",lines:[{item:mixedCode,quantity:2}],note:"QA damage"});
+const consumed=await postTx({type:"CONSUME",from:"BUONG_PHONG",lines:[{item:mixedCode,quantity:1}],note:"QA consume"});
+await postTx({type:"REVERSAL",reversalOf:consumed.id,lines:[],note:"QA reversal"});
+const mixedReport=await getFlow({item:mixedCode,from:today(),to:today()});
+assert.equal(mixedReport.status,200,JSON.stringify(mixedReport));
+const summary=mixedReport.body.summaryByUnit[0];
+assert.equal(summary.unit,"Kg");assert.equal(summary.opening,20);assert.equal(summary.closing,20);
+assert.equal(summary.transferIn,5);assert.equal(summary.transferOut,5);assert.equal(summary.receipt,0);
+assert.equal(summary.damageNet,0);assert.equal(summary.consumption,1);assert.equal(summary.reversal,1);
+for(const row of mixedReport.body.rows)assert.equal(row.opening+row.periodNet,row.closing);
+passed++;
+// Opening-only entries remain visible, independent of current-period movements.
+const openingReport=await getFlow({item:mixedCode,from:"2026-01-02",to:"2026-01-02"});
+assert.equal(openingReport.body.rows[0].opening,20);assert.equal(openingReport.body.rows[0].periodNet,0);passed++;
+// 501 committed transactions move the earlier receipt beyond state.transactions LIMIT 500.
+let stressState=await state(), revision=stressState.revision;
+for(let n=0;n<501;n++){
+ const id=crypto.randomUUID();
+ const out=await send({id,action:"transaction",payload:{id,revision:revision++,type:"COUNT",date:today(),to:"KHO_TONG",note:"QA history boundary",lines:[{item:flowItem,quantity:0}]}});
+ assert.equal(out.status,200,JSON.stringify(out));
+}
+stressState=await state();assert.equal(stressState.transactions.length,500);assert.ok(stressState.todayTxCount>500);
+const fullHistory=await getFlow({item:flowItem,from:today(),to:today()});
+assert.equal(fullHistory.body.rows[0].receipt,10);assert.equal(fullHistory.body.rows[0].consumption,10);
+assert.equal(fullHistory.body.rows[0].closing,0);passed++;
 console.log(JSON.stringify({ catalogFlowChecksPassed: passed }));

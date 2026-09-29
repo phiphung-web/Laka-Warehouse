@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { normalize, sanitizeAreaPrefix, KIND_PREFIX_MAP, scaled, today, validDate } from "../lib/inventory.ts";
-import { allocateNextItemCode, TAB_LOCATION_MAP, resolveDailyArea } from "../lib/auto-code.ts";
+import { allocateNextItemCode, TAB_LOCATION_MAP, resolveDailyArea, canonicalJson } from "../lib/auto-code.ts";
 
 export function runImporter(options = {}) {
  const apply = !!options.apply;
@@ -13,20 +13,25 @@ export function runImporter(options = {}) {
   throw new Error("--location-mode by-sheet|central is required when --apply is specified.");
  }
  const effectiveLocationMode = locationMode || "by-sheet";
+ if (!["by-sheet", "central"].includes(effectiveLocationMode)) throw Error("Invalid location mode");
  const baselineDate = options.date || today();
- if (!validDate(baselineDate)) throw new Error("Invalid baseline date: " + baselineDate);
+ if (!validDate(baselineDate) || baselineDate > today()) throw new Error("Invalid baseline date: " + baselineDate);
 
  const sourceFile = path.resolve(options.sourceFile || path.join(options.dataDir || process.env.LAKA_DATA_DIR || "data", "source-data.json"));
  if (!fs.existsSync(sourceFile)) throw new Error("Source data file not found: " + sourceFile);
  const sourceData = JSON.parse(fs.readFileSync(sourceFile, "utf8"));
  const { sourceId = "unknown", sourceTitle = "", items: seedItems = [], history = [] } = sourceData;
+ if (typeof sourceId !== "string" || !sourceId.trim() || sourceId === "unknown" || !Array.isArray(history)) throw Error("Invalid source identity/history");
 
  const dbFile = path.resolve(options.dbFile || path.join(options.dataDir || process.env.LAKA_DATA_DIR || "data", "warehouse.sqlite"));
  if (!fs.existsSync(dbFile)) throw new Error("Database file not found: " + dbFile);
 
- const db = new DatabaseSync(dbFile);
+ const db = new DatabaseSync(dbFile, {readOnly: !apply});
+ let transaction = false;
  try {
-  db.exec("PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
+  db.exec("PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
+  db.exec(apply ? "BEGIN IMMEDIATE" : "BEGIN"); transaction = true;
+  const locations = new Map(db.prepare("SELECT id,active FROM locations").all().map(l => [l.id,l]));
 
   const settingsRow = db.prepare("SELECT revision FROM settings WHERE id=1").get();
   if (!settingsRow && apply) throw new Error("Database settings row missing; initialize database before applying.");
@@ -34,6 +39,8 @@ export function runImporter(options = {}) {
 
   const existingItems = db.prepare("SELECT code, name, unit, category, kind, usage_location, active FROM items").all();
   const itemsByCode = new Map(existingItems.map(i => [i.code, { ...i }]));
+  const canonicalUnits = new Map();
+  for (const i of existingItems) if (!canonicalUnits.has(i.unit.trim().toLowerCase())) canonicalUnits.set(i.unit.trim().toLowerCase(),i.unit.trim());
   const itemsByNameAndUnit = new Map();
   for (const itm of existingItems) {
    const key = `${normalize(itm.name)}:::${itm.unit.trim().toLowerCase()}`;
@@ -48,7 +55,6 @@ export function runImporter(options = {}) {
   const hasProvTable = !!db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='import_provenance'").get();
   const existingProv = hasProvTable ? db.prepare("SELECT source_id, source_tab, row_number, row_fingerprint, item_code, location FROM import_provenance").all() : [];
   const provMap = new Map(existingProv.map(p => [`${p.source_id}:::${p.source_tab}:::${p.row_number}`, p]));
-  const provItemLocations = new Set(existingProv.map(p => `${p.item_code}:::${p.location}`));
 
   let carriedDate = "", carriedArea = "", carriedCategory = "";
   const validRows = [];
@@ -57,12 +63,18 @@ export function runImporter(options = {}) {
   const skippedRows = [];
   const newItemsToCreate = new Map();
   const newlyAllocatedCodesByNameUnit = new Map();
+  const usageAreas = new Map(), seenRows = new Set(), excludedRows = {};
+  const rememberArea = (code, area) => { if (!usageAreas.has(code)) usageAreas.set(code, new Set()); usageAreas.get(code).add(area); };
 
   for (const entry of history) {
    const { source, row, values } = entry;
-   if (source === "XuatKho_PhanBo") continue;
+   if (source === "XuatKho_PhanBo" || (options.purchaseTabsOnly && source === "Nhập đồ-Hàng ngày")) { excludedRows[source] = (excludedRows[source] || 0) + 1; continue; }
+   const identity = `${sourceId}:::${source}:::${row}`;
+   if (!Number.isSafeInteger(row) || row < 1 || !Array.isArray(values)) { unresolvedRows.push({source,row,reason:"Invalid source row"}); continue; }
+   if (seenRows.has(identity)) { conflictRows.push({source,row,reason:"Duplicate source row identity"}); continue; }
+   seenRows.add(identity);
 
-   let rawCode = "", rawName = "", rawUnit = "", rawQty = undefined, category = "Chung", targetLocation = "";
+   let rawCode = "", rawName = "", rawUnit = "", rawQty = undefined, category = "Chung", targetLocation = "", usageArea = "";
 
    if (source === "Nhập đồ-Hàng ngày") {
     if (values[0]) carriedDate = String(values[0]).trim();
@@ -80,8 +92,10 @@ export function runImporter(options = {}) {
      continue;
     }
     targetLocation = effectiveLocationMode === "central" ? "KHO_TONG" : mappedArea;
+    usageArea = mappedArea;
    } else if (Object.hasOwn(TAB_LOCATION_MAP, source)) {
     targetLocation = effectiveLocationMode === "central" ? "KHO_TONG" : TAB_LOCATION_MAP[source];
+    usageArea = TAB_LOCATION_MAP[source];
     if (source === "NhapKho_Nhahang") {
      rawCode = values[2];
      category = values[3] || "Chung";
@@ -101,13 +115,14 @@ export function runImporter(options = {}) {
    }
 
    const name = typeof rawName === "string" ? rawName.trim() : "";
-   const unit = typeof rawUnit === "string" ? rawUnit.trim() : "";
-   if (!name || !unit) {
+   const enteredUnit = typeof rawUnit === "string" ? rawUnit.trim() : "";
+   const unit = canonicalUnits.get(enteredUnit.toLowerCase()) || enteredUnit;
+   if (!name || !unit || name.length > 300 || unit.length > 40 || !locations.get(targetLocation)?.active || !locations.get(usageArea)?.active) {
     unresolvedRows.push({ source, row, reason: "Missing item name or unit" });
     continue;
    }
 
-   const rawNum = typeof rawQty === "number" ? rawQty : parseFloat(String(rawQty).replace(/,/g, ""));
+   const rawNum = typeof rawQty === "number" ? rawQty : (typeof rawQty === "string" && /^\d+(?:\.\d+)?$/.test(rawQty.trim()) ? Number(rawQty) : NaN);
    if (isNaN(rawNum) || !Number.isFinite(rawNum) || rawNum <= 0) {
     unresolvedRows.push({ source, row, reason: "Invalid quantity: " + rawQty });
     continue;
@@ -121,12 +136,13 @@ export function runImporter(options = {}) {
     continue;
    }
 
-   const fingerprint = createHash("sha256").update(JSON.stringify(values)).digest("hex");
+   const fingerprint = createHash("sha256").update(canonicalJson({values,usageArea,targetLocation,category,carriedDate:source === "Nhập đồ-Hàng ngày" ? carriedDate : ""})).digest("hex");
    const provKey = `${sourceId}:::${source}:::${row}`;
    const prevProv = provMap.get(provKey);
    if (prevProv) {
-    if (prevProv.row_fingerprint === fingerprint) {
+    if (prevProv.row_fingerprint === fingerprint && prevProv.location === targetLocation) {
      skippedRows.push({ source, row, itemCode: prevProv.item_code, location: prevProv.location });
+     rememberArea(prevProv.item_code, usageArea);
      continue;
     } else {
      conflictRows.push({ source, row, reason: "Row fingerprint changed compared to previous import provenance" });
@@ -136,6 +152,7 @@ export function runImporter(options = {}) {
 
    let itemCode = null;
    const code = typeof rawCode === "string" ? rawCode.trim() : "";
+   if (code && !/^[\p{L}\p{N}_-]{1,40}$/u.test(code)) { unresolvedRows.push({source,row,reason:"Invalid item code"}); continue; }
    if (code) {
     const existing = itemsByCode.get(code) || newItemsToCreate.get(code);
     if (existing) {
@@ -156,7 +173,7 @@ export function runImporter(options = {}) {
       active: 1,
       pack_unit: "",
       pack_size: 1000,
-      usage_location: targetLocation,
+      usage_location: usageArea,
       updated_at: new Date().toISOString()
      };
      newItemsToCreate.set(code, newItem);
@@ -173,14 +190,11 @@ export function runImporter(options = {}) {
      continue;
     } else if (matches.length === 1) {
      itemCode = matches[0].code;
-     if (!matches[0].usage_location) {
-      matches[0].usage_location = targetLocation;
-     }
     } else {
      if (newlyAllocatedCodesByNameUnit.has(nuKey)) {
       itemCode = newlyAllocatedCodesByNameUnit.get(nuKey);
      } else {
-      const areaPrefix = sanitizeAreaPrefix(targetLocation);
+      const areaPrefix = sanitizeAreaPrefix(usageArea);
       const kindPrefix = "CL";
       const prefix = `${areaPrefix}-${kindPrefix}-`;
       itemCode = allocateNextItemCode(allCodes, prefix);
@@ -196,7 +210,7 @@ export function runImporter(options = {}) {
        active: 1,
        pack_unit: "",
        pack_size: 1000,
-       usage_location: targetLocation,
+       usage_location: usageArea,
        updated_at: new Date().toISOString()
       };
       newItemsToCreate.set(itemCode, newItem);
@@ -207,11 +221,13 @@ export function runImporter(options = {}) {
    }
 
    const locKey = `${itemCode}:::${targetLocation}`;
-   if (ledgerItemLocations.has(locKey) && !provItemLocations.has(locKey)) {
+   if (itemsByCode.get(itemCode)?.active === 0) { unresolvedRows.push({source,row,reason:"Item is inactive: "+itemCode}); continue; }
+   if (ledgerItemLocations.has(locKey)) {
     conflictRows.push({ source, row, itemCode, location: targetLocation, reason: `Conflict: live operational ledger balance exists for ${itemCode} at ${targetLocation}` });
     continue;
    }
 
+   rememberArea(itemCode, usageArea);
    validRows.push({
     source,
     row,
@@ -219,20 +235,24 @@ export function runImporter(options = {}) {
     itemCode,
     name,
     unit,
+    enteredUnit,
     location: targetLocation,
     scaledQty
    });
   }
 
-  const quantities = {};
+  for (const p of existingProv) if (p.source_id === sourceId && !(options.purchaseTabsOnly && p.source_tab === "Nhập đồ-Hàng ngày") && !seenRows.has(`${sourceId}:::${p.source_tab}:::${p.row_number}`)) conflictRows.push({source:p.source_tab,row:p.row_number,reason:"Previously imported row is missing"});
+  const quantities = Object.create(null);
   const locationGroups = new Map();
   for (const r of validRows) {
-   if (!quantities[r.unit]) quantities[r.unit] = {};
+   if (!quantities[r.unit]) quantities[r.unit] = Object.create(null);
    quantities[r.unit][r.location] = (quantities[r.unit][r.location] || 0) + r.scaledQty / 1000;
 
    if (!locationGroups.has(r.location)) locationGroups.set(r.location, new Map());
    const itmMap = locationGroups.get(r.location);
-   itmMap.set(r.itemCode, (itmMap.get(r.itemCode) || 0) + r.scaledQty);
+   const combined = (itmMap.get(r.itemCode) || 0) + r.scaledQty;
+   if (!Number.isSafeInteger(combined)) throw Error("Quantity total exceeds safe precision");
+   itmMap.set(r.itemCode, combined);
   }
 
   const result = {
@@ -247,8 +267,9 @@ export function runImporter(options = {}) {
     skipped: skippedRows.length
    },
    quantities,
-   unresolvedRows: unresolvedRows.slice(0, 50),
-   conflictRows: conflictRows.slice(0, 50)
+   excludedRows,
+   unresolvedRows,
+   conflictRows
   };
 
   if (!apply) {
@@ -261,14 +282,14 @@ export function runImporter(options = {}) {
 
   const actor = options.actor || "Hệ thống";
   const now = new Date().toISOString();
-  db.exec("BEGIN IMMEDIATE");
   try {
    for (const itm of newItemsToCreate.values()) {
     db.prepare("INSERT INTO items (code,name,unit,category,kind,note,active,pack_unit,pack_size,usage_location,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
-     itm.code, itm.name, itm.unit, itm.category, itm.kind, itm.note, itm.active, itm.pack_unit, itm.pack_size, itm.usage_location, now
+     itm.code, itm.name, itm.unit, itm.category, itm.kind, itm.note, itm.active, itm.pack_unit, itm.pack_size, usageAreas.get(itm.code)?.size === 1 ? [...usageAreas.get(itm.code)][0] : null, now
     );
    }
 
+   for (const [code, areas] of usageAreas) if (validRows.length && areas.size === 1 && !newItemsToCreate.has(code) && !itemsByCode.get(code)?.usage_location) db.prepare("UPDATE items SET usage_location=?,updated_at=? WHERE code=? AND usage_location IS NULL").run([...areas][0],now,code);
    let rev = currentRevision;
    for (const [locId, itmMap] of locationGroups.entries()) {
     if (itmMap.size === 0) continue;
@@ -320,19 +341,20 @@ export function runImporter(options = {}) {
     for (const r of locRows) {
      const provId = "imp-" + randomUUID();
      db.prepare("INSERT INTO import_provenance (id,source_id,source_tab,row_number,row_fingerprint,item_code,location,quantity,entered_unit,tx_id,applied_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(
-      provId, sourceId, r.source, r.row, r.fingerprint, r.itemCode, r.location, r.scaledQty, r.unit, txId, now
+      provId, sourceId, r.source, r.row, r.fingerprint, r.itemCode, r.location, r.scaledQty, r.enteredUnit, txId, now
      );
     }
    }
 
-   db.exec("COMMIT");
+   db.exec("COMMIT"); transaction = false;
   } catch (err) {
-   db.exec("ROLLBACK");
+   db.exec("ROLLBACK"); transaction = false;
    throw err;
   }
 
   return { ...result, applied: true };
  } finally {
+  if (transaction) db.exec("ROLLBACK");
   db.close();
  }
 }
@@ -352,7 +374,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
  const dbFile = dbIdx !== -1 ? args[dbIdx + 1] : undefined;
 
  try {
-  const summary = runImporter({ apply, locationMode, date, dataDir, sourceFile, dbFile });
+  const summary = runImporter({ apply, locationMode, date, dataDir, sourceFile, dbFile, purchaseTabsOnly: args.includes("--purchase-tabs-only") });
   console.log(JSON.stringify(summary, null, 2));
  } catch (err) {
   console.error("Importer error:", err.message);
